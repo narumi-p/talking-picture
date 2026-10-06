@@ -6,8 +6,6 @@ Make a single character illustration talk **with its original pixels untouched**
 - Nothing is warped. Only the moving parts switch between frames drawn by an image-editing AI.
 - Every frame is rendered deterministically, so the same input always gives the same video.
 
-Built from scratch by narumi-p and Claude (Anthropic's AI).
-
 [日本語](README.md)
 
 ## How it works
