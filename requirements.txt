@@ -1,0 +1,7 @@
+numpy
+scipy
+opencv-python
+playwright
+# 任意：--sub 1 以上（キーの間の中間コマを光学フローで作る）のときだけ
+# torch
+# torchvision

@@ -1,0 +1,10 @@
+# 自分の絵・生成物は入れない（サンプルは sample/ に）
+gen/*.png
+gen/log_*.txt
+gen/config.json
+player/assets/
+out/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

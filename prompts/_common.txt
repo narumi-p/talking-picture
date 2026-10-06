@@ -1,0 +1,1 @@
+Edit the attached image {IN} using the image editing tool with {IN} as the input image. Output the same square canvas and size (1024x1024). This must be a LOCAL edit: every pixel outside the described area must stay bit-identical to the input (do not regenerate or re-render the rest of the image). No text.
