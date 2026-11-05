@@ -32,6 +32,7 @@
   uniform vec3 neckZone;                                // 首のまわり (cx, 上の y, 半幅)：首の層のここだけは動かさない
   uniform float alphaMode;       // 1 のとき背景を透明に（tMask＝下地の不透明さ）
   uniform float bgMode; uniform vec3 bgColor; uniform float hasMask;   // 背景：0 元のまま、1 色でぬる、2 透明
+  uniform vec3 srcBg;                                   // 元の絵の背景の色（ふちの色から差し引く）
   uniform float eyeMidX;                                // 左右の目の境（ここより左は eyeA、右は eyeB のコマ）
   uniform vec4 cheekL, cheekR; uniform float blush;     // 頬 (x, y, 半径) と照れ（0〜1）
   uniform vec3 sweat; uniform vec2 anger;               // 汗 (強さ, 下がる量, 0)、怒りマーク (強さ, 大きさ)
@@ -222,7 +223,8 @@
     if ((alphaMode > 0.5 || bgMode > 0.5) && hasMask > 0.5) {
       float ua = smp(tMask, pb).r;                                   // 下地の不透明さ（人物と奥の髪は 1、背景は 0）
       al = ua * (1.0 - hc.a) + hc.a;
-      vec3 pm = under * ua * (1.0 - hc.a) + hc.rgb * hc.a;           // 重ねた色（premultiplied）
+      vec3 fgU = max(under - srcBg * (1.0 - ua), vec3(0.0));         // ふちに混ざった元の背景の色を差し引いた人物の色（premultiplied）
+      vec3 pm = fgU * (1.0 - hc.a) + hc.rgb * hc.a;                   // 重ねた色（premultiplied）
       col = al > 0.001 ? pm / al : vec3(0.0);
       if (bgMode > 0.5 && bgMode < 1.5) { col = bgColor * (1.0 - al) + pm; al = 1.0; }
     }
@@ -494,6 +496,7 @@
     ims.forEach((im, i) => { if (im) { tex(im, i); gl.uniform1i(U(units[i]), i); } });
     gl.uniform1f(U('N'), N);
     gl.uniform1f(U('alphaMode'), ALPHA && ims[11] ? 1 : 0); gl.uniform1f(U('hasMask'), ims[11] ? 1 : 0);
+    gl.uniform3fv(U('srcBg'), (cfg.background_rgb || [252, 251, 251]).map((v) => v / 255));
     gl.uniform1f(U('eyeMidX'), cfg.head && cfg.head.nose ? cfg.head.nose[0] : (cfg.eye.rect[0] + cfg.eye.rect[2]) / 2);
     const ch = cfg.cheeks || [[0, 0, 1], [0, 0, 1]];
     gl.uniform4fv(U('cheekL'), [...ch[0], 0]); gl.uniform4fv(U('cheekR'), [...ch[1], 0]);

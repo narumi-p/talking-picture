@@ -5,7 +5,8 @@
   const TP = window.TP;
   const P = TP.params;
   // つまみの値（目標）。毎コマ、いまの値をなめらかに近づける
-  const target = { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1 };
+  const ZERO = { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, eyeOpenL: 1, eyeOpenR: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1, blush: 0, sweat: 0, anger: 0 };
+  const target = { ...ZERO };
   const DEG = 20;                       // 表示の角度（度）→ 内部の値（±1.5）
   const sliders = {
     yaw: ['#p-yaw', (v) => v / DEG, (x) => x * DEG, (v) => `${(+v).toFixed(0)}°`],
@@ -13,6 +14,11 @@
     roll: ['#p-roll', (v) => -v / DEG, (x) => -x * DEG, (v) => `${(+v).toFixed(0)}°`],
     body: ['#p-body', (v) => -v / 2, (x) => -x * 2, (v) => `${(+v).toFixed(1)}°`],
     eyeOpen: ['#p-eye', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
+    eyeOpenL: ['#p-eyeL', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
+    eyeOpenR: ['#p-eyeR', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
+    blush: ['#p-blush', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
+    sweat: ['#p-sweat', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
+    anger: ['#p-anger', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
     gazeX: ['#p-gx', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
     gazeY: ['#p-gy', (v) => -v, (x) => -x, (v) => (+v).toFixed(2)],
     brow: ['#p-brow', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
@@ -23,18 +29,42 @@
   for (const [k, [sel, toX, , fmt]] of Object.entries(sliders)) {
     const el = $(sel);
     el.addEventListener('input', () => { target[k] = toX(el.value); el.nextElementSibling.textContent = fmt(el.value); if (k === 'eyeOpen' || k === 'brow' || k === 'mouthOpen') setPreset(null); });
-    el.addEventListener('dblclick', () => { target[k] = k === 'eyeOpen' || k === 'hair' ? 1 : 0; showSlider(k); });
+    el.addEventListener('dblclick', () => { target[k] = ZERO[k]; showSlider(k); });
   }
   const setAll = () => Object.keys(sliders).forEach(showSlider);
 
   // ── 表情 ──
+  // 表情：書いていない値は通常（ZERO）に戻す。顔の向きは書いたものだけ変える
+  const FACE = ['expr', 'exprK', 'eyeOpen', 'eyeOpenL', 'eyeOpenR', 'brow', 'mouthOpen', 'blush', 'sweat', 'anger'];
   const presets = {
-    normal: { expr: '', exprK: 0, eyeOpen: 1, brow: 0, mouthOpen: 0 },
-    smile: { expr: 'smile', exprK: 1, eyeOpen: 1, brow: 0.3, mouthOpen: 0.25, shape: 0, pitch: -0.15, roll: 0.3 },
-    jito: { expr: 'jito', exprK: 1, eyeOpen: 1, brow: -0.6, mouthOpen: 0, yaw: 0.35, gazeX: 0.9 },
-    surprise: { expr: '', exprK: 0, eyeOpen: 1, brow: 1, mouthOpen: 0.5, shape: 4, pitch: -0.3 },
-    sleep: { expr: '', exprK: 0, eyeOpen: 0, brow: -0.15, mouthOpen: 0 },
+    normal: { expr: '', yaw: 0, pitch: 0, roll: 0, gazeX: 0, gazeY: 0 },
+    smile: { expr: 'smile', exprK: 1, brow: 0.3, mouthOpen: 0.25, shape: 0, pitch: -0.15, roll: 0.3 },
+    jito: { expr: 'jito', exprK: 1, brow: -0.6, yaw: 0.35, gazeX: 0.9 },
+    surprise: { brow: 1, mouthOpen: 0.5, shape: 4, pitch: -0.3 },
+    sleep: { eyeOpen: 0, brow: -0.15 },
+    wink: { eyeOpenL: 0, brow: 0.2, mouthOpen: 0.2, shape: 0, roll: 0.5, gazeX: 0.3 },
+    shy: { expr: 'smile', exprK: 1, blush: 1, brow: 0.15, pitch: 0.35, roll: -0.4, yaw: -0.3 },
+    angry: { anger: 1, brow: -0.9, mouthOpen: 0.3, shape: 3, pitch: 0.2 },
+    trouble: { sweat: 1, brow: 0.6, eyeOpen: 0.8, mouthOpen: 0.15, shape: 2, roll: 0.4, gazeX: -0.6 },
   };
+  // 自分で登録した表情（この端末のブラウザに残す）
+  const MY = 'tp-studio-presets';
+  const readMy = () => { try { return JSON.parse(localStorage.getItem(MY) || '[]'); } catch (e) { return []; } };
+  const writeMy = (a) => { try { localStorage.setItem(MY, JSON.stringify(a)); } catch (e) {} };
+  function renderMy() {
+    const box = $('#mypresets'); box.innerHTML = '';
+    readMy().forEach((m, i) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = m.name; b.title = '押すと呼び出し。右クリックで消す';
+      b.addEventListener('click', () => { presets['my' + i] = m.v; setPreset('my' + i); });
+      b.addEventListener('contextmenu', (e) => { e.preventDefault(); const a = readMy(); a.splice(i, 1); writeMy(a); renderMy(); });
+      box.appendChild(b);
+    });
+  }
+  $('#savepreset').addEventListener('click', () => {
+    const a = readMy(); const v = { expr: exprName, shape: vowel };
+    for (const k of Object.keys(ZERO)) v[k] = Math.round(target[k] * 100) / 100;
+    a.push({ name: `顔 ${a.length + 1}`, v }); writeMy(a); renderMy();
+  });
   let exprName = '';
   function setPreset(name) {
     document.querySelectorAll('#presets button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preset === name)));
@@ -42,10 +72,10 @@
     const p = presets[name];
     if (p.expr && exprName && p.expr !== exprName) P.exprK = 0;                     // 別の表情へは、いったん開いた目から
     if (p.expr) exprName = p.expr;
-    target.exprK = p.exprK;
-    for (const k of ['eyeOpen', 'brow', 'mouthOpen', 'yaw', 'pitch', 'roll', 'gazeX']) if (p[k] !== undefined) target[k] = p[k];
-    if (name === 'normal') { target.yaw = 0; target.pitch = 0; target.roll = 0; target.gazeX = 0; target.gazeY = 0; }
-    if (p.shape !== undefined) setVowel(p.shape);
+    for (const k of FACE) if (k !== 'expr') target[k] = p[k] !== undefined ? p[k] : ZERO[k];
+    if (!p.expr) target.exprK = 0;
+    for (const k of ['yaw', 'pitch', 'roll', 'gazeX', 'gazeY', 'body', 'hair']) if (p[k] !== undefined) target[k] = p[k];
+    setVowel(p.shape !== undefined ? p.shape : 0);
     setAll();
   }
   document.querySelectorAll('#presets button').forEach((b) => b.addEventListener('click', () => setPreset(b.dataset.preset)));
@@ -64,7 +94,7 @@
     updateBadge();
   }));
   $('#reset').addEventListener('click', () => {
-    Object.assign(target, { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1 });
+    Object.assign(target, ZERO);
     setVowel(0); setPreset('normal'); setAll();
   });
 
@@ -214,19 +244,89 @@
     }
     const k = 1 - Math.exp(-dt * 10), kf = 1 - Math.exp(-dt * 18);
     for (const key of ['yaw', 'pitch', 'roll', 'body', 'brow', 'hair']) P[key] += (target[key] - P[key]) * k;
-    for (const key of ['gazeX', 'gazeY', 'mouthOpen', 'eyeOpen']) P[key] += (target[key] - P[key]) * kf;
+    for (const key of ['gazeX', 'gazeY', 'mouthOpen', 'eyeOpen', 'eyeOpenL', 'eyeOpenR']) P[key] += (target[key] - P[key]) * kf;
+    for (const key of ['blush', 'sweat', 'anger']) P[key] += (target[key] - P[key]) * k;
+    if (blinkNow) { const x = (now - blinkNow) / 1000; P.eyeOpen = Math.min(P.eyeOpen, x < 0.1 ? 1 - x / 0.1 : x < 0.14 ? 0 : Math.min(1, (x - 0.14) / 0.16)); if (x > 0.3) blinkNow = 0; }
+    if (speaking) { const sv = speechMouth(now); P.mouthOpen = Math.max(P.mouthOpen, sv.open); if (sv.open > 0.05) P.shape = sv.shape; }
     P.exprK += (target.exprK - P.exprK) * (1 - Math.exp(-dt * 12));
     P.expr = exprName; if (P.exprK < 0.02 && target.exprK === 0) exprName = '';
-    P.shape = [0, 1, 2, 3, 4].map((i) => (i === vowel ? 1 : 0));
+    if (!(speaking && P.mouthOpen > 0.05 && speechMouth(now).open > 0.05)) P.shape = [0, 1, 2, 3, 4].map((i) => (i === vowel ? 1 : 0));
     analyse(dt);
     if (demo && audioEl) { TP.manual = false; TP.render(audioEl.currentTime); }   // デモ：台本どおり
     else { TP.manual = true; TP.render(now / 1000); }
     requestAnimationFrame(loop);
   }
+  // ── 背景 ──
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  function setBg(kind, color) {
+    document.querySelectorAll('#bgs [data-bg]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.bg === kind)));
+    TP.bg = kind === 'orig' ? { mode: 0 } : kind === 'clear' ? { mode: 2 } : { mode: 1, color: kind === 'green' ? [0, 0.69, 0.25] : kind === 'blue' ? [0, 0.28, 0.73] : color };
+    $('.stage').classList.toggle('checker', kind === 'clear'); document.body.classList.toggle('clear', kind === 'clear');
+  }
+  document.querySelectorAll('#bgs [data-bg]').forEach((b) => b.addEventListener('click', () => setBg(b.dataset.bg)));
+  $('#bgcolor').addEventListener('input', (e) => setBg('color', hex(e.target.value)));
+
+  // ── 配信モード・全画面 ──
+  const setObs = (on) => { document.body.classList.toggle('obs', on); if (on && !location.hash.includes('obs')) history.replaceState(null, '', location.pathname + location.search + (window.TP_FULL ? '#full-obs' : '#obs')); if (!on) history.replaceState(null, '', location.pathname + location.search + (window.TP_FULL ? '#full' : '')); };
+  $('#obs').addEventListener('click', () => setObs(true));
+  $('#fs').addEventListener('click', () => { const el = document.documentElement; (el.requestFullscreen ? el.requestFullscreen() : Promise.reject()).catch(() => { $('#save-note').textContent = 'この画面では全画面にできません。配信モードを使ってください。'; }); });
+  if (location.hash.includes('obs')) setObs(true);
+
+  // ── 文字を話す：ブラウザの読み上げ（声があれば）＋文字から作った口の動き ──
+  const KANA = { a: 'あかさたなはまやらわがざだばぱぁゃアカサタナハマヤラワガザダバパァャ', i: 'いきしちにひみりぎじぢびぴぃイキシチニヒミリギジヂビピィ', u: 'うくすつぬふむゆるぐずづぶぷぅゅっウクスツヌフムユルグズヅブプゥュッ', e: 'えけせてねへめれげぜでべぺぇエケセテネヘメレゲゼデベペェ', o: 'おこそとのほもよろをごぞどぼぽぉょオコソトノホモヨロヲゴゾドボポォョ' };
+  const vowelOf = (ch) => { for (const [k, v] of Object.entries(KANA)) if (v.includes(ch)) return 'aiueo'.indexOf(k); if ('ーん'.includes(ch)) return -2; if (/[、。！？!?,. \n]/.test(ch)) return -1; return Math.floor(Math.random() * 5); };
+  let speaking = null;
+  function speechMouth(now) {
+    const sp = speaking; if (!sp) return { open: 0, shape: [1, 0, 0, 0, 0] };
+    const t = (now - sp.t0) / 1000 * sp.rate; const i = Math.floor(t / 0.13); const fr = t / 0.13 - i;
+    if (i >= sp.seq.length) { if (!sp.voice || sp.ended) speaking = null; return { open: 0, shape: [1, 0, 0, 0, 0] }; }
+    const v = sp.seq[i]; if (v === -1) return { open: 0, shape: [1, 0, 0, 0, 0] };
+    const vv = v === -2 ? (sp.seq[i - 1] >= 0 ? sp.seq[i - 1] : 2) : v; const amp = v === -2 ? 0.25 : 0.55 + 0.25 * Math.sin(i * 1.7);
+    return { open: amp * Math.sin(Math.PI * Math.min(1, fr * 1.15)), shape: [0, 1, 2, 3, 4].map((k) => (k === vv ? 1 : 0)) };
+  }
+  $('#say').addEventListener('click', () => {
+    const text = $('#say-text').value.trim(); if (!text) return;
+    stopVoice();
+    const seq = [...text].map(vowelOf);
+    speaking = { seq, t0: performance.now(), rate: 1, voice: false, ended: false };
+    try {
+      const u = new SpeechSynthesisUtterance(text); u.lang = 'ja-JP'; u.rate = 1; u.pitch = 1.3;
+      const vs = speechSynthesis.getVoices().filter((v) => v.lang && v.lang.startsWith('ja'));
+      if (vs.length) { u.voice = vs.find((v) => /female|Kyoko|Nanami|Haruka|女性/i.test(v.name)) || vs[0]; speaking.voice = true; }
+      u.onstart = () => { if (speaking) speaking.t0 = performance.now(); };
+      u.onend = () => { if (speaking) speaking.ended = true; };
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+      $('#say-note').textContent = vs.length ? `声：${u.voice.name}` : '日本語の読み上げ声が無いので、口だけ動かしています。';
+    } catch (e) { $('#say-note').textContent = '読み上げを使えないので、口だけ動かしています。'; }
+  });
+
+  // ── キー操作 ──
+  let blinkNow = 0, held = null;
+  const PKEYS = ['normal', 'smile', 'jito', 'surprise', 'sleep', 'wink', 'shy', 'angry', 'trouble'];
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'Escape' && document.body.classList.contains('obs')) { setObs(false); return; }
+    if (/^[1-9]$/.test(k)) { setPreset(PKEYS[+k - 1]); return; }
+    const step = 0.25;
+    if (k === 'ArrowLeft') { target.yaw = clamp(target.yaw - step, -1.5, 1.5); showSlider('yaw'); e.preventDefault(); }
+    else if (k === 'ArrowRight') { target.yaw = clamp(target.yaw + step, -1.5, 1.5); showSlider('yaw'); e.preventDefault(); }
+    else if (k === 'ArrowUp') { target.pitch = clamp(target.pitch - step, -1.5, 1.5); showSlider('pitch'); e.preventDefault(); }
+    else if (k === 'ArrowDown') { target.pitch = clamp(target.pitch + step, -1.5, 1.5); showSlider('pitch'); e.preventDefault(); }
+    else if (k === ' ') { blinkNow = performance.now(); e.preventDefault(); }
+    else if ('aiueoAIUEO'.includes(k) && k.length === 1) { if (held === k.toLowerCase()) return; held = k.toLowerCase(); setVowel('aiueo'.indexOf(held)); target.mouthOpen = held === 'i' ? 0.5 : 0.7; }
+    else if (k === 'b' || k === 'B') { target.blush = target.blush > 0.5 ? 0 : 1; showSlider('blush'); }
+    else if (k === 'w' || k === 'W') { target.eyeOpenL = target.eyeOpenL < 0.5 ? 1 : 0; showSlider('eyeOpenL'); }
+    else if (k === 'r' || k === 'R') $('#reset').click();
+    else if (k === 'p' || k === 'P') setObs(!document.body.classList.contains('obs'));
+  });
+  document.addEventListener('keyup', (e) => { if (held && e.key.toLowerCase() === held) { held = null; target.mouthOpen = 0; showSlider('mouthOpen'); } });
+  renderMy();
+
   // バストアップ／全身：ページを読み直して層を切り替える（#full）
   document.querySelectorAll('[data-view]').forEach((b) => {
     b.setAttribute('aria-pressed', String((b.dataset.view === 'full') === !!window.TP_FULL));
-    b.addEventListener('click', () => { const full = b.dataset.view === 'full'; if (full === !!window.TP_FULL) return; location.hash = full ? 'full' : ''; location.reload(); });
+    b.addEventListener('click', () => { const full = b.dataset.view === 'full'; if (full === !!window.TP_FULL && !new URLSearchParams(location.search).get('a')) return; location.href = location.pathname + (full ? '#full' : ''); location.reload(); });
   });
   const start = () => {
     const cv = $('#gl'); frame.style.setProperty('--ar', String(cv.width / cv.height));

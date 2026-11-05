@@ -66,6 +66,17 @@ button:disabled { opacity: .45; cursor: default; }
 .toggles button[aria-pressed=true] { background: var(--panel-on); border-color: var(--accent); color: var(--fg); }
 .toggles button[aria-pressed=true]::before { background: var(--accent); }
 .note { margin: 0; font-size: 12px; color: var(--mute); }
+textarea { font: 14px/1.5 var(--ui); color: var(--fg); background: #0f0e15; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; }
+textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.file input[type=color] { position: static; width: 18px; height: 14px; opacity: 1; border: 0; padding: 0; margin-left: 6px; background: none; }
+.stage.checker .frame { background: repeating-conic-gradient(#d9d8e0 0 25%, #f4f3f7 0 50%) 0 0 / 24px 24px; }
+body.obs .panel { display: none; }
+body.obs .app { grid-template-columns: minmax(0, 1fr); }
+body.obs .stage { padding: 0; }
+body.obs .frame { box-shadow: none; border-radius: 0; width: min(100%, calc(100vh * var(--ar, 1))); }
+body.obs .badge { display: none; }
+body.obs.clear, body.obs.clear .app, body.obs.clear .stage { background: transparent; }
+body.obs.clear .frame { background: transparent; }
 .meter { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .05s linear; }
 @media (max-width: 820px) {
@@ -103,7 +114,13 @@ button:disabled { opacity: .45; cursor: default; }
         <button type="button" data-preset="jito" aria-pressed="false">ジト目</button>
         <button type="button" data-preset="surprise" aria-pressed="false">驚き</button>
         <button type="button" data-preset="sleep" aria-pressed="false">目を閉じる</button>
+        <button type="button" data-preset="wink" aria-pressed="false">ウインク</button>
+        <button type="button" data-preset="shy" aria-pressed="false">照れ</button>
+        <button type="button" data-preset="angry" aria-pressed="false">怒り</button>
+        <button type="button" data-preset="trouble" aria-pressed="false">困り</button>
       </div>
+      <div class="btns" id="mypresets"></div>
+      <div class="btns"><button type="button" id="savepreset">今の顔を登録</button></div>
     </section>
 
     <section aria-labelledby="h-face">
@@ -119,6 +136,8 @@ button:disabled { opacity: .45; cursor: default; }
       <div class="row"><label for="p-eye">目の開き</label><input id="p-eye" type="range" min="0" max="1" step="0.01" value="1"><output for="p-eye">1.00</output></div>
       <div class="row"><label for="p-gx">目玉 X</label><input id="p-gx" type="range" min="-1" max="1" step="0.01" value="0"><output for="p-gx">0.00</output></div>
       <div class="row"><label for="p-gy">目玉 Y</label><input id="p-gy" type="range" min="-1" max="1" step="0.01" value="0"><output for="p-gy">0.00</output></div>
+      <div class="row"><label for="p-eyeL">左目</label><input id="p-eyeL" type="range" min="0" max="1" step="0.01" value="1"><output for="p-eyeL">1.00</output></div>
+      <div class="row"><label for="p-eyeR">右目</label><input id="p-eyeR" type="range" min="0" max="1" step="0.01" value="1"><output for="p-eyeR">1.00</output></div>
       <div class="row"><label for="p-brow">眉の上下</label><input id="p-brow" type="range" min="-1" max="1" step="0.01" value="0"><output for="p-brow">0.00</output></div>
     </section>
 
@@ -132,6 +151,20 @@ button:disabled { opacity: .45; cursor: default; }
         <button type="button" data-v="3" aria-pressed="false">え</button>
         <button type="button" data-v="4" aria-pressed="false">お</button>
       </div>
+    </section>
+
+    <section aria-labelledby="h-fx">
+      <h2 id="h-fx">漫符</h2>
+      <div class="row"><label for="p-blush">照れ</label><input id="p-blush" type="range" min="0" max="1" step="0.01" value="0"><output for="p-blush">0.00</output></div>
+      <div class="row"><label for="p-sweat">汗</label><input id="p-sweat" type="range" min="0" max="1" step="0.01" value="0"><output for="p-sweat">0.00</output></div>
+      <div class="row"><label for="p-anger">怒りマーク</label><input id="p-anger" type="range" min="0" max="1" step="0.01" value="0"><output for="p-anger">0.00</output></div>
+    </section>
+
+    <section aria-labelledby="h-say">
+      <h2 id="h-say">文字を話す</h2>
+      <textarea id="say-text" rows="2" placeholder="ここに書いた文を、口を動かして読み上げます">こんにちは、なるみです。よろしくね。</textarea>
+      <div class="btns"><button type="button" id="say">話す</button></div>
+      <p class="note" id="say-note">ブラウザの読み上げ声を使います（声が無い環境では口だけ動きます）。</p>
     </section>
 
     <section aria-labelledby="h-voice">
@@ -160,6 +193,24 @@ button:disabled { opacity: .45; cursor: default; }
       <div class="row"><label for="p-hair">髪の量</label><input id="p-hair" type="range" min="0" max="2.5" step="0.05" value="1"><output for="p-hair">1.00</output></div>
     </section>
 
+    <section aria-labelledby="h-bg">
+      <h2 id="h-bg">背景</h2>
+      <div class="btns" id="bgs">
+        <button type="button" data-bg="orig" aria-pressed="true">元の絵</button>
+        <button type="button" data-bg="green" aria-pressed="false">グリーンバック</button>
+        <button type="button" data-bg="blue" aria-pressed="false">ブルーバック</button>
+        <button type="button" data-bg="clear" aria-pressed="false">透明</button>
+        <label class="file">色…<input id="bgcolor" type="color" value="#f3e6ef"></label>
+      </div>
+      <div class="btns"><button type="button" id="obs">配信モード</button><button type="button" id="fs">全画面</button></div>
+      <p class="note">配信モードは絵だけを画面いっぱいに出します（OBS のブラウザソースやウインドウキャプチャ向け。Esc で戻る）。</p>
+    </section>
+
+    <section aria-labelledby="h-keys">
+      <h2 id="h-keys">キー操作</h2>
+      <p class="note keys">1〜9 表情 ／ 矢印 顔の向き ／ Space まばたき ／ A I U E O 口の形（押している間開く）／ B 照れ ／ W ウインク ／ R リセット ／ P 配信モード</p>
+    </section>
+
     <section aria-labelledby="h-save">
       <h2 id="h-save">保存</h2>
       <div class="btns">
@@ -172,10 +223,12 @@ button:disabled { opacity: .45; cursor: default; }
 </div>
 <script>
   // #full で全身、それ以外はバストアップ。描く大きさは画面に合わせる（長い辺）
-  window.TP_FULL = location.hash === '#full';
-  window.TP_ASSETS = window.TP_FULL ? 'assets_full' : 'assets';
+  window.TP_FULL = location.hash.startsWith('#full');
+  // ?a=assets_xxx でほかのキャラクター（tools/make_all.py が作った層のフォルダ）
+  const qa = new URLSearchParams(location.search).get('a');
+  window.TP_ASSETS = qa && /^[\w-]+$/.test(qa) ? qa : window.TP_FULL ? 'assets_full' : 'assets';
   window.TP_EXTERNAL_LOOP = true;
-  window.TP_SIZE = Math.min(window.TP_FULL ? 1536 : 1254, Math.max(720, Math.round(Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1) * 0.75)));
+  window.TP_SIZE = Math.min(2048, Math.max(720, Math.round(Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1) * 0.75)));
 </script>
 <script src="player.js"></script>
 <script src="studio.js"></script>

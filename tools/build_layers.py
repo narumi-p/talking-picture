@@ -131,7 +131,18 @@ cv2.imwrite(str(A / "base.png"), base.astype(np.uint8))
 cv2.imwrite(str(A / "hair.png"), np.dstack([H, a_hair * 255]).astype(np.uint8))
 cv2.imwrite(str(A / "original.png"), src.astype(np.uint8))
 # 下地の不透明さ（透明な背景で書き出すとき用）：人物（髪なしの形）と奥の髪は 1、背景は 0
+#   ふち：背景の色との差で濃さを決める（ぼかした形だと外の白い背景まで人物に入り、色を変えると白くにじむ）
 mask = np.clip(np.maximum(person, inner_hair), 0, 1)
+#   背景＝絵の外周から、背景の色に近い所だけをたどって届く所（線画の内側の白い服の線などは人物のまま）
+dbg = np.abs(base - bg[None, None, :]).max(2)
+matte = np.clip((dbg - 6) / 34.0, 0, 1)
+bgl = (dbg < 22).astype(np.uint8)
+labb, _ = ndi.label(bgl)
+edge_ids = np.unique(np.concatenate([labb[0], labb[-1], labb[:, 0], labb[:, -1]])); edge_ids = edge_ids[edge_ids > 0]
+outside = np.isin(labb, edge_ids)
+ring = cv2.dilate(outside.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+mask = np.where(outside, 0.0, np.where(ring, np.maximum(matte, 0.0), 1.0))
+mask = np.where(outside & (matte > 0.15), matte, mask)                            # 背景の中の薄い毛のふち
 cv2.imwrite(str(A / "mask.png"), (np.dstack([mask, mask, mask]) * 255).astype(np.uint8))
 
 # ── 5.5) 頭と首（任意）：head_alpha.png があれば、頭（あごから上）を別の層にする。
@@ -391,6 +402,6 @@ else:
     w_ = (ex1 - ex0) / 2
     cheeks = [[ex0 + w_ * 0.45, ey1 + w_ * 0.15, w_ * 0.4], [ex1 - w_ * 0.45, ey1 + w_ * 0.15, w_ * 0.4]]
 cfg = {"size": N, "eye": {"rect": [int(ex0), int(ey0), int(ex1), int(ey1)], "blink_frames": blink_n, "blink_lid": blink_lid, "keys": len(KF), "sub": SUB, "expr": expr, "count": len(frames)},
-       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame"), "head_layer": head_layer, "neck_zone": neck_zone, "cheeks": cheeks}
+       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame"), "head_layer": head_layer, "neck_zone": neck_zone, "cheeks": cheeks, "background_rgb": C["background_rgb"]}
 json.dump(cfg, open(A / "config.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 print("書き出し:", A)
