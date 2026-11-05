@@ -42,6 +42,7 @@
   uniform vec2 turn;                                    // 顔の向き：奥行き 1 の所のずれ（画素）
   uniform float hairFront, backDepth, breath;           // 前髪の手前さ、後ろの奥さ、呼吸（肩の上下、画素）
   uniform float soft;                                   // 首・肩のなじませ幅の倍率（絵の中の顔の大きさに合わせる）
+  uniform vec3 nose; uniform vec3 depthMix;             // 鼻 (x, y, 半径)、奥行きの混ぜ方（頭の丸み・顔のふくらみ・鼻）
   uniform vec2 bodyPivot; uniform float bodyRoll;       // 体の角度：足元を軸に体ごと少し傾ける（全身の絵）
   vec2 rot(vec2 v, float a){ float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }
   #define smp(t, q) texture(t, (q) / N)
@@ -81,9 +82,14 @@
   float ell(vec2 p, vec4 e){ vec2 d = (p - e.xy) / e.zw; return 1.0 - dot(d, d); }
   float zFace(vec2 p){ float f = clamp((ell(p, faceE) + 0.3) / 1.3, 0.0, 1.0); return f * f * (3.0 - 2.0 * f); }
   float headW(vec2 p){ return smoothstep(neckY + 60.0 * soft, neckY - 80.0 * soft, p.y); }
+  // 奥行き＝頭全体の丸み（髪ごと回る。髪の楕円の中ほど手前、縁で 0 のドーム）＋顔のふくらみ＋鼻の高まり
   vec2 dBase(vec2 p){
-    float z = zFace(p);
-    float back = backDepth * (1.0 - z) * smoothstep(-0.2, 0.5, ell(p, hairE));
+    float s = clamp((ell(p, hairE) + 0.1) / 1.1, 0.0, 1.0);
+    float zh = 1.0 - (1.0 - s) * (1.0 - s);
+    vec2 dn = (p - nose.xy) / max(nose.z, 1.0);
+    float zn = exp(-0.5 * dot(dn, dn));
+    float z = depthMix.x * zh + depthMix.y * zFace(p) + depthMix.z * zn;
+    float back = backDepth * (1.0 - zFace(p)) * smoothstep(-0.2, 0.5, ell(p, hairE));
     return turn * (z - back) * headW(p);
   }
   // 前髪：顔の上では顔と同じに動く（顔に掛かる細い毛が二重にならない）。顔の外の髪だけ少し手前（視差）
@@ -424,6 +430,8 @@
     gl.uniform4fv(U('hairE'), hd.hair || [N / 2, N * 0.45, N * 0.45, N * 0.48]);
     gl.uniform1f(U('hairFront'), hd.hair_front ?? 0.3); gl.uniform1f(U('backDepth'), hd.back ?? 0.35);
     gl.uniform1f(U('soft'), hd.soft ?? 1.0);
+    gl.uniform3fv(U('nose'), hd.nose || [N / 2, N * 0.57, N * 0.03]);
+    gl.uniform3fv(U('depthMix'), hd.depth || [0.55, 0.45, 0.12]);
     gl.uniform2fv(U('bodyPivot'), (hd.body && hd.body.pivot) || [N / 2, N]);
     const lp = qs.get('lips') || (qs.has('export') ? '' : A + 'lips.json');
     if (lp) { try { const r = await fetch(lp + '?v=' + Date.now()); lips = r.ok ? await r.json() : null; } catch (e) { lips = null; } }

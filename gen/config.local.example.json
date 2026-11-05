@@ -476,12 +476,22 @@
    560,
    600
   ],
-  "yaw_px": 16,
-  "pitch_px": 10,
+  "yaw_px": 38,
+  "pitch_px": 22,
   "roll_deg": 1.0,
   "hair_front": 0.3,
-  "back": 0.35,
+  "back": 0.0,
   "brow_px": 14,
-  "breath_px": 2
+  "breath_px": 2,
+  "nose": [
+   627,
+   716,
+   42
+  ],
+  "depth": [
+   0.55,
+   0.45,
+   0.12
+  ]
  }
 }

@@ -176,15 +176,39 @@ def corners(geo):
     return (geo["x0"], geo["ya"]), (geo["x1"], geo["yb"])
 
 
+def crease_line(geo, pad):
+    """二重の線の下端（列ごと）。まぶたはこの線より下を引き伸ばして下ろす（線そのものは動かさない）"""
+    x0, y0, x1, y1 = geo["box"]
+    cb = np.zeros(N, np.float64)
+    lo_off, hi_off = px(30, 6), px(3, 1)
+    for x in range(x0, x1):
+        ys = geo["top"][x] - pad
+        r0, r1 = int(max(0, ys - lo_off)), int(max(1, ys - 1))
+        col = Y[r0:r1, x]
+        found = None
+        if len(col) > 2:
+            ref = np.percentile(col, 80)
+            idx = np.nonzero(col < ref - 18)[0]
+            if len(idx): found = r0 + idx[-1] + 1
+        cb[x] = found if found is not None else ys - px(14, 3)
+    v = ndi.median_filter(cb[x0:x1], px(9, 3), mode="nearest")
+    cb[x0:x1] = ndi.gaussian_filter1d(v, max(0.8, 2.0 * ES), mode="nearest")
+    for x in range(x0, x1):
+        ys = geo["top"][x] - pad
+        cb[x] = np.clip(cb[x], ys - lo_off, ys - hi_off)
+    return cb
+
+
 def render_eye(img, geo, line, fill_below=False, thin=0.0, shade=0.06):
-    """line(x)＝まつ毛の帯の新しい中心の y。帯（上に跳ねた毛＋まつ毛）を元の画素のまま下ろし、上の空いた所を肌に。
-    fill_below＝帯の下から下まぶたまでも肌にする（閉じた目・笑顔）。thin＝帯を薄くする割合（閉じた目は線が細い）"""
+    """line(x)＝まつ毛の帯の新しい中心の y。帯（上に跳ねた毛＋まつ毛）を元の画素のまま下ろす。
+    まぶた＝二重の線の下から帯の上までの肌（跳ねたまつ毛を消した絵）を、縦に引き伸ばして埋める（色の移り変わりは元の絵のまま）。
+    fill_below＝帯の下から下まぶたまでも肌にする（閉じた目・笑顔。目を消してなじませた肌で）。thin＝帯を薄くする割合"""
     x0, y0, x1, y1 = geo["box"]
     pad = max(2.0, 7.0 * ES)
     k = 1.0 - thin
     T0 = geo["T"] + pad
-    up = lid_skin(geo, -pad - px(16, 3), geo["top"]); up0 = lid_skin(geo, -pad - 1, geo["top"]); dn = lid_skin(geo, px(6, 2), geo["bot"])
-    sh = lash_shadow(geo)
+    cb = crease_line(geo, pad)
+    clean = clean_skin(geo)
     out = img.copy()
     for x in range(x0, x1):
         top = geo["top"][x]; ys = top - pad
@@ -194,29 +218,25 @@ def render_eye(img, geo, line, fill_below=False, thin=0.0, shade=0.06):
         d = nb0 - ys
         if d < 0.3: continue
         nb1 = nb0 + T0 * k
-        for y in range(int(np.floor(ys)), y1):
+        c0 = cb[x]
+        for y in range(int(np.floor(c0)), y1):
             if y < 0 or y >= N: continue
-            if y < nb0:                                                             # まぶた：帯に近いほど少しだけ影
-                w = np.clip((y - ys) / max(d, 1.0), 0, 1)
-                t0 = np.clip((y - ys) / max(1.5, 4.0 * ES), 0, 1)                                      # 上端は元の色から肌の色へなじませる
-                c = up0[x] * (1 - t0) + up[x] * t0
-                k2 = 0.45 * w ** 1.2
-                c = c * (1 - k2) + (sh[x] * 0.5 + dn[x] * 0.5) * k2                    # 下の方は少し赤み（目の下の肌の色）を足す
-                c = c * (1.0 - shade * w ** 2.5)
-                a = np.clip(y + 1 - ys, 0, 1) if y < ys + 1 else 1.0
-                c = out[y, x] * (1 - a) + c * a
+            if y < nb0:                                                             # まぶた：二重の線の下〜帯の上の元の肌を引き伸ばす
+                u = (y + 0.5 - c0) / max(nb0 - c0, 1e-3)
+                sy = c0 + u * (ys - c0) - 0.5
+                f = sy - np.floor(sy); a = int(np.floor(sy))
+                c = clean[a, x] * (1 - f) + clean[a + 1, x] * f                        # 跳ねたまつ毛を消した肌（縦の筋にならない）
+                c = c * (1.0 - shade * np.clip(u, 0, 1) ** 2.5 * min(1.0, d / max(1.0, 6 * ES)))   # 帯の近くに薄い影
             elif y < nb1:                                                           # 帯：元の画素を縦に縮めて置く
                 sy = ys + (y - nb0) / k
                 f = sy - np.floor(sy); a = int(np.floor(sy))
                 c = S[a, x] * (1 - f) + S[a + 1, x] * f
-                if y < nb0 + 1:                                                     # 上端 1 画素はなじませる
-                    w = nb0 + 1 - y; c = c * (1 - w) + up[x] * (1 - shade) * w
             else:
                 if not fill_below: break
                 lim = geo["bot"][x] + px(7, 2)
                 if y > lim: break
                 w = np.clip((y - nb1 + 1) / max(1.0, 2.0 * ES), 0, 1) * np.clip((lim - y) / max(1.0, 3.0 * ES), 0, 1) * ww
-                c = out[y, x] * (1 - w) + dn[x] * w
+                c = out[y, x] * (1 - w) + clean[y, x] * w
             out[y, x] = c
     return out
 
@@ -303,7 +323,7 @@ def iris_layers(base_img):
         geo = eye_geometry(spec)
         op = np.zeros((N, N), np.uint8)
         for x in range(geo["x0"] + 3, geo["x1"] - 2):
-            ya = int(np.ceil(geo["top"][x] + geo["T"] * 0.8)); yb = int(np.floor(geo["bot"][x] - 2))
+            ya = int(np.ceil(geo["top"][x] + geo["T"] * 0.8)); yb = int(np.floor(geo["bot"][x] - 2 - (1.5 if ES < 0.6 else 0)))   # 小さい目は下まつ毛から離す
             if yb > ya: op[ya:yb, x] = 1
         cand = (op.astype(bool) & (((r - g) > 45) | (Y < 150))).astype(np.uint8)
         K7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (px(7, 3) | 1, px(7, 3) | 1))
