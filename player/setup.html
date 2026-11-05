@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!--SETUP-->
+<title>喋る絵の点打ち</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* レイアウト：左に絵（拡大・移動できる）、右に点の一覧（順番に打つ）。狭い画面では縦に積む。スタジオと同じ暗い作業場 */
+:root {
+  --bg: #13121a; --panel: #1b1a25; --line: #2d2b3d; --fg: #ecebf4; --mute: #9896ad;
+  --accent: #e2475f; --accent-ink: #fff; --done: #5fc59a; --stage: #f6f5f8;
+  --ui: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --num: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #0e0d13; touch-action: none; cursor: crosshair; }
+#cv { position: absolute; left: 0; top: 0; }
+.hud { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; pointer-events: none; }
+.hud > * { pointer-events: auto; }
+.tip { font: 500 13px/1.4 var(--ui); background: rgba(19, 18, 26, .85); padding: 8px 10px; border-radius: 6px; max-width: 60ch; }
+.tip b { color: var(--accent); }
+.zoom { margin-left: auto; display: flex; gap: 4px; }
+.drop { position: absolute; inset: 0; display: grid; place-items: center; color: var(--mute); text-align: center; padding: 24px; }
+.drop strong { display: block; color: var(--fg); font-size: 18px; margin-bottom: 8px; }
+.panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding-block: 16px 24px; padding-left: 16px; padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 16px; }
+h1 { margin: 0; font: 700 18px/1.25 var(--ui); text-wrap: balance; }
+h1 small { display: block; font: 400 12px/1.5 var(--ui); color: var(--mute); margin-top: 4px; }
+h2 { margin: 0; font: 500 11px/1 var(--ui); color: var(--mute); letter-spacing: .14em; }
+section { display: flex; flex-direction: column; gap: 8px; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+button, .file { font: 500 13px/1 var(--ui); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px; cursor: pointer; position: relative; }
+button:hover, .file:hover { border-color: var(--mute); }
+button:focus-visible, .file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+button:disabled { opacity: .45; cursor: default; }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+li button { width: 100%; text-align: left; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; border-color: transparent; padding: 7px 8px; }
+li button .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--mute); }
+li button.done .dot { background: var(--done); border-color: var(--done); }
+li button.cur { border-color: var(--accent); background: #2a1d27; }
+li button .opt { font-size: 11px; color: var(--mute); }
+li button .xy { font: 11px var(--num); color: var(--mute); font-variant-numeric: tabular-nums; }
+.grp { margin: 8px 0 2px; font-size: 11px; color: var(--mute); letter-spacing: .1em; }
+label.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+pre { margin: 0; font: 12px/1.6 var(--num); background: #0f0e15; border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto; white-space: pre; }
+.note { margin: 0; font-size: 12px; color: var(--mute); }
+.progress { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--done); width: 0; }
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; height: auto; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+}
+</style>
+</head><body>
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="絵と点"></canvas>
+    <div class="drop" id="drop"><div><strong>絵をここに落とすか、右の「絵を開く」</strong>正面向きで背景が無地の絵（胸から上・全身どちらでも）</div></div>
+    <div class="hud">
+      <div class="tip" id="tip">絵を開いてください。</div>
+      <div class="zoom"><button type="button" id="zin" aria-label="拡大">＋</button><button type="button" id="zout" aria-label="縮小">－</button><button type="button" id="zfit">全体</button></div>
+    </div>
+  </div>
+  <aside class="panel" aria-label="点">
+    <h1>喋る絵の点打ち<small>目・口・顔の目印をクリックで置くと、動かすための設定（points.json）ができます。点はドラッグで直せます。</small></h1>
+    <section>
+      <div class="btns">
+        <label class="file">絵を開く<input id="img" type="file" accept="image/*"></label>
+        <label class="file">points.json を読む<input id="load" type="file" accept=".json,application/json"></label>
+        <button type="button" id="sample">見本（なるみ）</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="full"> 全身の絵（体の角度も動かす）</label>
+      <div class="progress" aria-hidden="true"><i id="prog"></i></div>
+    </section>
+    <section aria-labelledby="h-pts">
+      <h2 id="h-pts">点（上から順に）</h2>
+      <ol id="list"></ol>
+    </section>
+    <section>
+      <div class="btns">
+        <button type="button" id="undo">ひとつ戻す</button>
+        <button type="button" id="skip">この点を飛ばす</button>
+        <button type="button" id="clear">全部消す</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="guides" checked> 目の範囲・顔と髪の楕円を重ねて見る</label>
+    </section>
+    <section aria-labelledby="h-out">
+      <h2 id="h-out">できたら</h2>
+      <div class="btns"><button type="button" id="save" class="primary">points.json を保存</button><button type="button" id="copy">中身をコピー</button></div>
+      <p class="note" id="save-note">保存したら、絵と points.json を同じフォルダに置いて次を動かします。</p>
+      <pre id="cmd">python tools/prepare.py 絵.png points.json gen_b
+python tools/make_all.py gen_b</pre>
+    </section>
+  </aside>
+</div>
+<script src="setup.js"></script>
+</body></html>
