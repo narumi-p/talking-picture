@@ -4,7 +4,7 @@ python tools/preview.py <out.png> --states '[{"label":"rest"},{"eye":[6,6,0],"la
   --crop x0,y0,x1,y1（描いた 1080px の画像での範囲）  --assets 層のフォルダ名  --cols 1 行の枚数
 state: open＝口の開き 0〜1、shape＝[あ,い,う,え,お] の重み、eye＝[コマ a, コマ b, 混ぜる割合]（eyes.png の上から何番目か）、still＝髪を揺らさない
 """
-import sys, base64, json, shutil
+import os, sys, base64, json, shutil
 from pathlib import Path
 import numpy as np, cv2
 from playwright.sync_api import sync_playwright
@@ -27,7 +27,7 @@ if opt("--timeline"): shutil.copy(opt("--timeline"), player / assets / "timeline
 srv, base = serve.start(player)
 ims = []
 with sync_playwright() as p:
-    b = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+    b = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None, args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
     pg = b.new_page(viewport={"width": 1080, "height": 1080})
     pg.goto(f"{base}/index.html?{q}"); pg.wait_for_function("window.ready === true", timeout=120000)
     for kind, v in items:

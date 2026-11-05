@@ -4,7 +4,7 @@ python tools/export.py --audio <voice.wav> --lips <lips.json> --out out/demo [--
   --alpha   背景を透明にした連番 PNG も残す（動画編集ソフトに重ねるとき）
 出力: <out>/frames/f_00000.png …, <out>/talk.mp4（決定論：同じ入力なら同じコマ）
 """
-import argparse, base64, json, shutil, subprocess, sys, time
+import argparse, base64, json, os, shutil, subprocess, sys, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -35,7 +35,7 @@ srv, base = serve.start(A.player)
 url = f"{base}/index.html?export=1&w={A.w}&h={A.h}&assets={A.assets}&lips={A.assets}/lips.json&seed={A.seed}{tl}" + ("&alpha=1" if A.alpha else "")
 t0 = time.time()
 with sync_playwright() as p:
-    b = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+    b = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None, args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
     pg = b.new_page(viewport={"width": A.w, "height": A.h})
     pg.goto(url); pg.wait_for_function("window.ready === true", timeout=120000)
     for i in range(n):

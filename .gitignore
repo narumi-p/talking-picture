@@ -8,3 +8,7 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+# 台本から作った声・タイムライン・字幕（tools/tts_voice.py）
+demo/*.wav
+demo/*_timeline.json
+demo/*_subs.json

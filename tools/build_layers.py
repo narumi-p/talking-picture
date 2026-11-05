@@ -6,7 +6,7 @@
   髪の揺れ ＝ 根元→毛先の線（strands）ごとの重みの画像
 
 python tools/build_layers.py [--gen gen] [--out player/assets] [--config gen/config.json] [--sub 0]
-  --gen    描き分けの PNG が入ったフォルダ（src.png, bald_open.png, hair_only.png, no_mouth.png, eye_*.png）
+  --gen    描き分けの PNG が入ったフォルダ（src.png, bald_open.png, hair_only.png, no_mouth.png, eye_*.png。任意で hair_alpha.png）
   --out    層の書き出し先（player/index.html が読む assets フォルダ）
   --config 絵ごとの設定（髪の線など。無ければ 1024px の胸から上の絵向けの既定値）
   --sub    キーとキーの間に光学フローで作る中間コマの数。既定 0（中間コマは二重・裂けが出やすいので、描いたコマの切り替えだけを勧める）
@@ -93,11 +93,17 @@ person = cv2.GaussianBlur(person.astype(np.float32), (0, 0), 1.0)
 diff = np.abs(src - bald).max(2)
 hair_zone = cv2.dilate((a_ho > 0.2).astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
 a_hair = np.clip((diff - 9) / 48.0, 0, 1) * hair_zone                            # 細い毛のふちまで髪に入れる
+_ha = cv2.imread(str(G / "hair_alpha.png"), cv2.IMREAD_GRAYSCALE)                # 髪の濃さが分かっているとき（make_variants_local.py が書く）はそれを使う
+if _ha is not None:
+    if _ha.shape != (N, N): _ha = cv2.resize(_ha, (N, N), interpolation=cv2.INTER_AREA)
+    a_hair = _ha.astype(np.float32) / 255.0
+    print("髪の濃さ: hair_alpha.png を使う")
 lab, n = ndi.label(a_hair > 0.3); sizes = ndi.sum(a_hair > 0.3, lab, range(1, n + 1))
 a_hair[np.isin(lab, 1 + np.nonzero(np.asarray(sizes) < 40)[0])] = 0
 
 # ── 4) 下地：髪の範囲だけ作り直す（外周の帯は背景、内側は奥の髪、人物の中は髪なしの肌） ──
 hz = cv2.dilate((a_hair > 0.01).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 0   # 毛のふちの外まで下地を作り直す（動いた跡に線が残らない）
+if _ha is not None: hz = a_hair > 0.004                                             # 髪の濃さが正確に分かっているときは、髪の所だけ作り直す
 hair_sil = (a_ho > 0.5).astype(np.uint8)
 inner_hair = cv2.erode(hair_sil, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))).astype(np.float32)
 inner_hair = cv2.GaussianBlur(inner_hair, (0, 0), 3.0) * a_ho
@@ -113,6 +119,9 @@ under = under * (1 - person[..., None]) + skin * person[..., None]
 base = src * (1 - hz[..., None]) + under * hz[..., None]
 
 # ── 5) 髪の色を「下地の上に重ねると元の絵になる」ように戻す（止まっているとき元の絵と同じ） ──
+if _ha is not None:                                                               # 下地の上で元の色に戻せるだけの濃さは必ず持たせる
+    need = np.where(src < base, 1 - src / np.maximum(base, 1), (src - base) / np.maximum(255 - base, 1)).max(2)
+    a_hair = np.where(hz, np.maximum(a_hair, np.clip(need, 0, 1)), a_hair)
 a = a_hair[..., None]
 H = np.where(a > 0.04, (src - (1 - a) * base) / np.maximum(a, 0.04), src)
 H = np.clip(H, 0, 255)

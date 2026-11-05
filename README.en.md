@@ -44,6 +44,10 @@ Only two kinds of motion exist: frame switching and root rotation of hair. Optic
 4. Make a video: `python tools/make_video.py voice.wav out/talk.mp4 --timeline docs/timeline.example.json` (`--w 1080 --h 1920` for portrait, `--alpha` to also keep transparent PNG frames).
 5. Check: `python tools/serve.py` → http://127.0.0.1:8765/ , or `python tools/preview.py out/check.png --times 0,1.5,3`.
 
+**No image-editing AI?** `tools/make_variants_local.py` builds the same variants from the source alone: blinks slide the original upper-lash band down and fill the lid with skin, closed/smile/half-lidded eyes follow arcs between the eye corners you give, the mouth line is inpainted, and the hair is detached with an exact alpha (`hair_alpha.png`, used by `build_layers.py`), so the still frame stays identical to the source. Start from `gen/config.local.example.json`.
+
+**No voice yet?** `tools/tts_voice.py demo/narumi_script.json demo/narumi` makes a placeholder voice (pyopenjtalk), an expression timeline and subtitles; `make_video.py ... --subs demo/narumi_subs.json` burns the subtitles in.
+
 See the Japanese README for the config keys, multi-character setup and lessons learned.
 
 ## License

@@ -58,6 +58,33 @@ python tools/check_variants.py --gen gen
 `gen/` に次の絵ができます：`bald_open`（髪なし）・`hair_only`（髪だけ、緑地）・`eye_12/25/37/62/75/closed`・`eye_jito`・`eye_smile`・`no_mouth`。
 `check_variants.py` が全部 OK になるまで作り直します（NG＝絵全体が描き直されている）。
 
+#### 画像編集 AI を使わない場合（コードで作る）
+
+画像編集 AI が無くても、元の絵 1 枚から同じ名前の絵をコードで作れます（`tools/make_variants_local.py`）。
+
+- **目のコマ**：上まつ毛の帯を元の画素のまま下へ滑らせ、空いた所をまぶたの肌色で埋める。閉じた目は目じりと目がしらを結ぶ ‿ の弧、笑顔は ∩ の弧、ジト目は平らな線まで下ろす
+- **口なし**：口の線だけを周りの肌で埋める
+- **髪なし**：髪を全部外し、人物の上は周りの色で埋め、外は背景色にする。髪の濃さも `hair_alpha.png` に書き、`build_layers.py` はそれを使う（止まっているときの誤差 0）
+
+```bash
+cp gen/config.local.example.json gen/config.json   # 目じり・目がしら・口・顔と服の範囲・髪の線を自分の絵に合わせる
+python tools/make_variants_local.py --gen gen --debug out/variants.png   # out/variants*.png で目のコマと髪の範囲を確認
+python tools/build_layers.py --gen gen --out player/assets
+```
+
+`config.json` の `"local"` に書くもの（座標は 1024×1024 にそろえた絵の画素）：
+
+| キー | 意味 |
+|---|---|
+| `eyes` | 目ごとに `box`（目の範囲。眉は入れない）、`outer`（目じり）、`inner`（目がしら）。目じり・目がしらは上下のまぶたが合わさる所 |
+| `mouth_box` | 口の線の範囲 |
+| `face_poly` | 顔・耳・首の多角形。中の暗い所は、外の髪とつながる毛だけを髪とみなす |
+| `body_poly` | 服の多角形。服が髪と同じ色でも髪にしない（中は赤い毛先など、はっきり違う色だけ髪にする） |
+| `keep_boxes` | 髪にしない所（眉・口・鼻） |
+| `hair_ymax` | これより下は髪として扱わない |
+
+`config.local.example.json` は、胸から上・ショートボブ・紺のジャージの絵（なるみ）に合わせた値です。
+
 ### 3. 層（レイヤー）を作る
 
 ```bash
@@ -73,10 +100,19 @@ python tools/build_layers.py --gen gen --out player/assets
 python tools/make_video.py 声.wav out/talk.mp4 --timeline docs/timeline.example.json
 ```
 
+声が無いときは、台本から試し用の声・表情のタイミング・字幕を作れます（`pip install pyopenjtalk`。Open JTalk の声を高くしたもの）。
+
+```bash
+python tools/tts_voice.py demo/narumi_script.json demo/narumi
+python tools/make_video.py demo/narumi.wav out/narumi.mp4 --timeline demo/narumi_timeline.json --subs demo/narumi_subs.json
+```
+
 - `声.wav`：16bit/24bit の wav（モノラルでもステレオでも可）
 - `--timeline`：表情のタイミング `{"events": [{"t": 2.0, "dur": 1.2, "expr": "smile"}, {"t": 5.0, "dur": 1.0, "expr": "jito"}]}`（t＝始まる秒、dur＝続く秒）。省略可
 - `--w 1080 --h 1920` で縦長、`--alpha` で背景を透明にした PNG 連番（`out/<名前>_work/frames/`）も残します。動画編集ソフトに重ねるときに使います
+- `--subs`：字幕 `[{"t": 0.5, "dur": 2.1, "text": "こんにちは"}]` を焼き込む（字体は `--font`、既定 IPAGothic）
 - まばたきの間隔は決定論的な乱数で決まります（`export.py --seed` で変えられます）
+- ブラウザが見つからないときは `CHROMIUM_PATH=/path/to/chrome` で指定できます
 
 ### 5. 確認する
 
@@ -117,6 +153,8 @@ python tools/make_video.py 声.wav out/b.mp4 --assets assets_b
 ```
 player/   index.html, player.js        再生（WebGL）。assets/ に層が入る
 tools/    build_layers.py              描き分け → 層
+          make_variants_local.py       画像編集 AI を使わずに描き分けを作る
+          tts_voice.py                 台本 → 試し用の声・表情・字幕
           audio_lips.py                声 → 口の開きと形（LPC フォルマント）
           export.py                    1 コマずつ描いて mp4（--alpha で透明 PNG）
           make_video.py                声 → 動画まで一括
@@ -125,7 +163,9 @@ tools/    build_layers.py              描き分け → 層
           serve.py                     player/ を配る小さなサーバー
 prompts/  make_keys.sh, *.txt          画像編集 AI への指示文
 gen/      config.example.json          絵ごとの設定の例（自分の絵と描き分けはここに置く。git には入れない）
+          config.local.example.json    コードで描き分けを作るときの設定の例
 docs/     timeline.example.json        表情のタイムラインの例
+demo/     narumi_script.json           台本の例
 ```
 
 ## うまくいかないときに分かったこと
