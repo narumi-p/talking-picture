@@ -34,6 +34,7 @@
   uniform vec4 eyeRect; uniform float eyeCount, eyeA, eyeB, eyeMix;   // 目の範囲・コマ数・混ぜる 2 コマと割合
   uniform vec4 mRect; uniform vec4 mGeo;                // 口の範囲、(cx, cy, k, halfw)
   uniform float mOpen; uniform float mShape[5];         // 口の開き、あいうえお の重み
+  uniform vec3 mLine; uniform float mLineW;             // 元の口の線の色と太さ（画素）
   uniform vec4 bRect; uniform float browDy, hasBrow;    // 眉の範囲と上下（画素、上が負）
   uniform vec4 iRect; uniform vec2 gaze; uniform float hasIris;   // 黒目の範囲と視線（画素）
   uniform vec2 roots[9]; uniform float theta[9];        // 髪の根元と角度（ラジアン）
@@ -110,7 +111,7 @@
     float rnd = clamp(u + ob, 0.0, 1.0);
     float hw = mGeo.w * mix(0.95, wf, smoothstep(0.0, 0.45, mOpen));
     float h = mGeo.w * 0.82 * hf * mOpen;
-    float x = q.x - mGeo.x; float yc = mGeo.y + mGeo.z * x * x * mix(1.0, 0.45, smoothstep(0.0, 0.6, mOpen));
+    float x = q.x - mGeo.x; float yc = mGeo.y + mGeo.z * x * x * mix(1.0, 0.75, smoothstep(0.0, 0.6, mOpen));   // 笑みの反りを残す
     float un = x / hw; float v = q.y - yc;
     if (abs(un) > 1.25) return vec4(0);
     float bump = max(0.0, 1.0 - un * un);
@@ -118,19 +119,20 @@
     float botE =  h * mix(0.74, 0.58, rnd) * pow(bump, mix(0.6, 0.5, rnd));
     float px = 1.0;                                                // 1 画素ぶんのぼかし
     float inside = smoothstep(-px, px, v - topE) * smoothstep(-px, px, botE - v) * smoothstep(1.0 + 0.02, 1.0 - 0.02, abs(un));
-    vec3 col = vec3(0.30, 0.08, 0.11);
+    vec3 col = mix(vec3(0.30, 0.08, 0.11), mLine * vec3(0.75, 0.45, 0.55), 0.35);   // 口の中：元の線の色に寄せた暗い赤
     float ty = botE - h * 0.30; float tw = hw * 0.55, th = h * 0.42;   // 舌
     float tng = smoothstep(1.0, 0.9, length(vec2(x / max(tw, 1.0), (q.y - yc - ty) / max(th, 1.0))));
     col = mix(col, vec3(0.80, 0.38, 0.44), tng * 0.9);
     float teeth = smoothstep(0.42, 0.52, i_ + e) * smoothstep(0.15, 0.3, mOpen);   // 上の歯（い・え）。出すか出さないか
     float tb = smoothstep(px, -px, v - (topE + h * 0.22)) * step(abs(un), 0.82);
     col = mix(col, vec3(0.97, 0.95, 0.95), clamp(teeth * tb, 0.0, 1.0));
-    float edgeTop = 1.0 - smoothstep(0.0, 1.7, abs(v - topE));     // 輪郭線（上は太め）
-    float edgeBot = (1.0 - smoothstep(0.0, 1.0, abs(v - botE))) * 0.55;
+    float lw = max(mLineW, 1.0);
+    float edgeTop = 1.0 - smoothstep(lw * 0.45, lw * 0.45 + 1.0, abs(v - topE));   // 輪郭線：上は元の線の太さ、下は細く薄く
+    float edgeBot = (1.0 - smoothstep(lw * 0.2, lw * 0.2 + 1.0, abs(v - botE))) * 0.5;
     float lineMask = max(edgeTop, edgeBot) * smoothstep(1.12, 0.98, abs(un));
-    float corner = (1.0 - smoothstep(0.0, 1.4, abs(v - topE * 0.2))) * smoothstep(1.18, 1.0, abs(un)) * smoothstep(0.9, 1.0, abs(un));
+    float corner = (1.0 - smoothstep(lw * 0.7, lw * 0.7 + 1.0, abs(v - topE * 0.2))) * smoothstep(1.2, 1.02, abs(un)) * smoothstep(0.88, 1.0, abs(un));   // 口角は元の絵のように太く
     lineMask = max(lineMask, corner);
-    vec3 lineCol = vec3(0.36, 0.16, 0.15);
+    vec3 lineCol = mLine;
     float alpha = max(inside, lineMask);
     vec3 c = mix(col, lineCol, lineMask * (1.0 - inside * 0.6));
     return vec4(c, alpha);
@@ -418,7 +420,10 @@
     gl.uniform1f(U('N'), N);
     gl.uniform1f(U('alphaMode'), ALPHA && ims[11] ? 1 : 0);
     gl.uniform4fv(U('eyeRect'), cfg.eye.rect); gl.uniform1f(U('eyeCount'), cfg.eye.count);
-    if (cfg.mouth) { gl.uniform4fv(U('mRect'), cfg.mouth.rect); gl.uniform4fv(U('mGeo'), [cfg.mouth.cx, cfg.mouth.cy, cfg.mouth.k, cfg.mouth.halfw]); }
+    if (cfg.mouth) {
+      gl.uniform4fv(U('mRect'), cfg.mouth.rect); gl.uniform4fv(U('mGeo'), [cfg.mouth.cx, cfg.mouth.cy, cfg.mouth.k, cfg.mouth.halfw]);
+      gl.uniform3fv(U('mLine'), cfg.mouth.line_rgb || [0.36, 0.16, 0.15]); gl.uniform1f(U('mLineW'), cfg.mouth.line_w || 2.0);
+    }
     gl.uniform1f(U('hasBrow'), cfg.brow && ims[12] ? 1 : 0);
     if (cfg.brow) gl.uniform4fv(U('bRect'), cfg.brow.rect);
     gl.uniform1f(U('hasIris'), cfg.iris && ims[14] ? 1 : 0);

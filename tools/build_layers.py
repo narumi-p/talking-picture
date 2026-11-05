@@ -284,7 +284,13 @@ if nm is not None:
         mm = cv2.GaussianBlur(cv2.dilate((d > 6).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(np.float32), (0, 0), 2)
         skinm = base * (1 - mm[..., None]) + nm * mm[..., None]
         cv2.imwrite(str(A / "mouthskin.png"), skinm[ry0:ry1, rx0:rx1].astype(np.uint8))
+        # 元の口の線の色と太さ（開いた口の輪郭をこれで描く）
+        dark = sel & (luma_o <= np.percentile(luma_o[sel], 30)) if sel.sum() > 8 else sel   # 線のいちばん暗い所
+        line_rgb = (np.median(src[dark], axis=0)[::-1] / 255.0).tolist() if dark.sum() else [0.36, 0.16, 0.15]
+        cols_ = [int(sel[:, x].sum()) for x in range(int(mx0), int(mx1) + 1) if sel[:, x].any()]
+        line_w = float(np.clip(np.median(cols_) if cols_ else 2.0, 1.0, 6.0))
         mouth = {"rect": [rx0, ry0, rx1, ry1], "cx": float(cxm), "cy": float(c), "k": float(k), "halfw": float((mx1 - mx0) / 2),
+                 "line_rgb": [round(v, 3) for v in line_rgb], "line_w": round(line_w, 2),
                  "line_rect": [int(mx0), int(my0), int(mx1), int(my1)]}
         print("口:", mouth)
     else:
