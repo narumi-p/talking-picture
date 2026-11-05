@@ -19,3 +19,4 @@ gen_*/*.png
 gen_*/config.json
 gen_*/log_*.txt
 player/assets_*/
+gen_auto*/
