@@ -134,6 +134,28 @@ cv2.imwrite(str(A / "original.png"), src.astype(np.uint8))
 mask = np.clip(np.maximum(person, inner_hair), 0, 1)
 cv2.imwrite(str(A / "mask.png"), (np.dstack([mask, mask, mask]) * 255).astype(np.uint8))
 
+# ── 5.5) 頭と首（任意）：head_alpha.png があれば、頭（あごから上）を別の層にする。
+#   首の層＝頭の範囲の内側を周り（首・髪・背景）の色で埋めた下地。顔が向きを変えると、あごの下から首が見える。
+#   頭の濃さのふち（0〜1 の所）は首の層も下地のままにして、止まっているときは元の絵と同じにする
+head_layer = False; neck_zone = None
+_hm = cv2.imread(str(G / "head_alpha.png"), cv2.IMREAD_GRAYSCALE)
+if _hm is not None:
+    if _hm.shape != (N, N): _hm = cv2.resize(_hm, (N, N), interpolation=cv2.INTER_NEAREST)
+    ha = cv2.GaussianBlur((_hm > 127).astype(np.float32), (0, 0), 0.8)
+    inner = (ha >= 0.999).astype(np.uint8)
+    h2 = N // 2                                                                       # 広い所を埋めるので半分の大きさで
+    small = cv2.inpaint(cv2.resize(np.clip(base, 0, 255).astype(np.uint8), (h2, h2), interpolation=cv2.INTER_AREA),
+                        cv2.resize(inner, (h2, h2), interpolation=cv2.INTER_NEAREST), 12, cv2.INPAINT_TELEA)
+    fill = cv2.GaussianBlur(cv2.resize(small, (N, N), interpolation=cv2.INTER_CUBIC).astype(np.float32), (0, 0), 2.0)
+    neck = np.where(inner[..., None] > 0, fill, base)
+    cv2.imwrite(str(A / "necklayer.png"), np.dstack([np.clip(neck, 0, 255), ha * 255]).astype(np.uint8))
+    # 首のまわり（ここだけ動かさない）：頭の範囲の下の端の少し上での幅
+    ys_, xs_ = np.nonzero(_hm > 127); hy1 = int(ys_.max()); hh = hy1 - int(ys_.min())
+    row = np.nonzero(_hm[max(0, hy1 - int(hh * 0.12))] > 127)[0]
+    neck_zone = [float((row.min() + row.max()) / 2), float(hy1 - hh * 0.12), float((row.max() - row.min()) / 2)] if len(row) else None
+    head_layer = True
+    print("頭の層: あり（首の層 necklayer.png）  首のまわり:", neck_zone)
+
 # ── 6) 目：コマ ──
 keys = ["bald_open.png"] + [k + ".png" for k in C["eye_keys"]]
 extra = [k + ".png" for k in C["expressions"]]
@@ -357,6 +379,6 @@ for k in range(3):   # 9 本を RGB×3 枚に詰める（重みと根元から�
     cv2.imwrite(str(A / f"ss{k}.png"), np.clip(np.dstack([S[3 * k + 2], S[3 * k + 1], S[3 * k]]) * 255, 0, 255).astype(np.uint8))
 
 cfg = {"size": N, "eye": {"rect": [int(ex0), int(ey0), int(ex1), int(ey1)], "blink_frames": blink_n, "blink_lid": blink_lid, "keys": len(KF), "sub": SUB, "expr": expr, "count": len(frames)},
-       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame")}
+       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame"), "head_layer": head_layer, "neck_zone": neck_zone}
 json.dump(cfg, open(A / "config.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 print("書き出し:", A)

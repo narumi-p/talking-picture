@@ -363,6 +363,35 @@ def iris_layers(base_img):
     return a, opening, out
 
 
+# ───────────────────────── 頭（あごから上）と首 ─────────────────────────
+def head_mask(seeds):
+    """頭の範囲（顔の肌＋耳。あごの輪郭線で首と分ける）。暗い線を壁にして、鼻と耳から塗りつぶす"""
+    wall = (Y < 165).astype(np.uint8)
+    wall = cv2.dilate(wall, np.ones((2, 2), np.uint8)) > 0                         # 線のすき間をふさぐ
+    allowed = ~wall & poly_mask(L.get("face_poly"))
+    lab, n = ndi.label(allowed)
+    sizes = np.bincount(lab.ravel())
+    ids = set(); r = px(24, 6)
+    for x, y in seeds:                                                               # 種のまわりで、いちばん大きいかたまり（線の上に当たっても拾う）
+        x, y = int(x), int(y)
+        win = lab[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1]
+        cand = [v for v in np.unique(win) if v > 0]
+        if cand: ids.add(int(max(cand, key=lambda v: sizes[v])))
+    m = np.isin(lab, list(ids))
+    face = poly_mask(L.get("face_poly"))
+    for e in L.get("eyes", []):                                                      # 目・眉・口は頭に（髪とつながっていて穴にならないことがある）
+        x0, y0, x1, y1 = e["box"]; m[y0:y1, x0:x1] |= face[y0:y1, x0:x1]
+    for x0, y0, x1, y1 in L.get("keep_boxes", []) + L.get("brows", []) + [L.get("mouth_box", [0, 0, 0, 0])]:
+        m[y0:y1, x0:x1] |= face[y0:y1, x0:x1]
+    m = ndi.binary_fill_holes(m)                                                     # 鼻なども頭に
+    k = px(9, 3) | 1
+    m = cv2.morphologyEx(m.astype(np.uint8), cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))) > 0
+    m = ndi.binary_fill_holes(m)
+    k = px(5, 3) | 1
+    m = cv2.dilate(m.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))) > 0   # 輪郭線（あご・頬・耳）も頭に
+    return m
+
+
 # ───────────────────────── 書き出し ─────────────────────────
 hair, core, face, body = hair_masks()
 inside = face | body                                                                # 人物の中：髪の下を周りの色で埋める
@@ -407,6 +436,12 @@ if L.get("eyes"):                                                               
     cv2.imwrite(str(G / "iris_alpha.png"), np.clip(ia * 255, 0, 255).astype(np.uint8))
     cv2.imwrite(str(G / "eye_open.png"), np.clip(op * 255, 0, 255).astype(np.uint8))
     cv2.imwrite(str(G / "no_iris.png"), np.clip(ni, 0, 255).astype(np.uint8))
+hd_ = cfg.get("head") or {}
+if hd_.get("nose") and L.get("ears"):                                              # 頭の範囲と、頭の後ろ（首を上へ伸ばした絵）
+    hm = head_mask([hd_["nose"][:2]] + L["ears"])
+    cv2.imwrite(str(G / "head_alpha.png"), (hm * 255).astype(np.uint8))
+    ys_, xs_ = np.nonzero(hm)
+    print("頭:", int(hm.sum()), "画素  y", int(ys_.min()), "〜", int(ys_.max()), " x", int(xs_.min()), "〜", int(xs_.max()))
 if L.get("brows"):                                                                 # 眉（上げ下げする部品）と、眉を消した肌
     ba = brow_alpha()
     cv2.imwrite(str(G / "brow_alpha.png"), np.clip(ba * 255, 0, 255).astype(np.uint8))

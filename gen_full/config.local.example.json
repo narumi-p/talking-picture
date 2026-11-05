@@ -279,7 +279,7 @@
   ],
   "yaw_px": 11,
   "pitch_px": 6,
-  "roll_deg": 1.2,
+  "roll_deg": 7.0,
   "hair_front": 0.3,
   "back": 0.0,
   "brow_px": 3.6,
@@ -504,6 +504,16 @@
     149
    ]
   ],
-  "hair_ymax": 296
+  "hair_ymax": 296,
+  "ears": [
+   [
+    688,
+    178
+   ],
+   [
+    841,
+    178
+   ]
+  ]
  }
 }

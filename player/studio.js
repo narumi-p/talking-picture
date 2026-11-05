@@ -30,7 +30,7 @@
   // ── 表情 ──
   const presets = {
     normal: { expr: '', exprK: 0, eyeOpen: 1, brow: 0, mouthOpen: 0 },
-    smile: { expr: 'smile', exprK: 1, eyeOpen: 1, brow: 0.3, mouthOpen: 0.25, shape: 0, pitch: -0.15, roll: 0.35 },
+    smile: { expr: 'smile', exprK: 1, eyeOpen: 1, brow: 0.3, mouthOpen: 0.25, shape: 0, pitch: -0.15, roll: 0.3 },
     jito: { expr: 'jito', exprK: 1, eyeOpen: 1, brow: -0.6, mouthOpen: 0, yaw: 0.35, gazeX: 0.9 },
     surprise: { expr: '', exprK: 0, eyeOpen: 1, brow: 1, mouthOpen: 0.5, shape: 4, pitch: -0.3 },
     sleep: { expr: '', exprK: 0, eyeOpen: 0, brow: -0.15, mouthOpen: 0 },
