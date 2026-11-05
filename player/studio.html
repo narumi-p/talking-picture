@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!--STUDIO-->
+<title>なるみスタジオ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* レイアウト：左に絵（正方形、画面いっぱい）、右にパラメーターの盤。狭い画面では縦に積む。暗い作業場の一色で通す */
+:root {
+  --bg: #13121a;        /* 作業場の地（紺に寄せた黒） */
+  --panel: #1b1a25;     /* 盤 */
+  --line: #2d2b3d;      /* 罫・つまみの溝 */
+  --fg: #ecebf4;        /* 文字 */
+  --mute: #9896ad;      /* 補助の文字 */
+  --accent: #e2475f;    /* なるみの毛先の赤 */
+  --accent-ink: #ffffff;
+  --panel-on: #2a1d27;  /* 入っている切り替えの地 */
+  --stage: #f6f5f8;     /* 絵の後ろ（絵の背景と同じ明るさ） */
+  --ui: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: 100%; padding-block: 0; padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px)); }
+.stage { position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; padding: 16px; }
+.frame { position: relative; width: min(100%, calc(100vh - 32px)); aspect-ratio: 1; max-width: 100%; border-radius: 6px; overflow: hidden; background: var(--stage); box-shadow: 0 0 0 1px var(--line); touch-action: none; cursor: grab; }
+.frame.drag { cursor: grabbing; }
+#gl { width: 100%; height: 100%; display: block; }
+.badge { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.chip { font: 500 11px/1 var(--ui); letter-spacing: .04em; padding: 6px 8px; border-radius: 99px; background: rgba(19, 18, 26, .72); color: var(--fg); }
+.chip.rec { background: var(--accent); color: var(--accent-ink); }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; color: #555366; font: 500 13px var(--ui); }
+.panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding-block: 16px 24px; padding-left: 16px; padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 18px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+h1 { margin: 0; font: 700 18px/1.2 var(--ui); letter-spacing: .02em; text-wrap: balance; }
+h1 small { display: block; font: 400 11px/1.4 var(--ui); color: var(--mute); letter-spacing: .02em; margin-top: 4px; }
+section { display: flex; flex-direction: column; gap: 8px; }
+h2 { margin: 0; font: 500 11px/1 var(--ui); color: var(--mute); letter-spacing: .14em; }
+.row { display: grid; grid-template-columns: 5.6em minmax(0, 1fr) 3.4em; align-items: center; gap: 10px; }
+.row label { font-size: 13px; }
+.row output { font: 12px var(--num); color: var(--mute); text-align: right; font-variant-numeric: tabular-nums; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; margin: 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--fg); border: 0; }
+input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--fg); border: 0; }
+input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+button, .file { font: 500 13px/1 var(--ui); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px; cursor: pointer; }
+button:hover, .file:hover { border-color: var(--mute); }
+button:focus-visible, .file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+button:disabled { opacity: .45; cursor: default; }
+.vowels button { width: 2.6em; padding-inline: 0; font-size: 15px; }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file { position: relative; display: inline-flex; align-items: center; }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.toggles button { text-align: left; display: flex; align-items: center; gap: 8px; }
+.toggles button::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: none; }
+.toggles button[aria-pressed=true] { background: var(--panel-on); border-color: var(--accent); color: var(--fg); }
+.toggles button[aria-pressed=true]::before { background: var(--accent); }
+.note { margin: 0; font-size: 12px; color: var(--mute); }
+.meter { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .05s linear; }
+@media (max-width: 820px) {
+  .app { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .stage { padding: 12px max(12px, env(safe-area-inset-left, 0px)) 8px max(12px, env(safe-area-inset-right, 0px)); }
+  .frame { width: 100%; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+</head><body>
+<div class="app">
+  <div class="stage">
+    <div class="frame" id="frame">
+      <canvas id="gl" aria-label="なるみ"></canvas>
+      <div class="loading" id="loading">読み込み中…</div>
+      <div class="badge" id="badge"><span class="chip">ドラッグで顔の向き</span></div>
+    </div>
+  </div>
+  <aside class="panel" aria-label="パラメーター">
+    <div class="head">
+      <h1>なるみスタジオ<small>1 枚の絵のまま、顔・目・口を動かす</small></h1>
+      <button id="reset" type="button">リセット</button>
+    </div>
+
+    <section aria-labelledby="h-expr">
+      <h2 id="h-expr">表情</h2>
+      <div class="btns" id="presets">
+        <button type="button" data-preset="normal" aria-pressed="true">通常</button>
+        <button type="button" data-preset="smile" aria-pressed="false">笑顔</button>
+        <button type="button" data-preset="jito" aria-pressed="false">ジト目</button>
+        <button type="button" data-preset="surprise" aria-pressed="false">驚き</button>
+        <button type="button" data-preset="sleep" aria-pressed="false">目を閉じる</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-face">
+      <h2 id="h-face">顔</h2>
+      <div class="row"><label for="p-yaw">角度 X</label><input id="p-yaw" type="range" min="-30" max="30" step="0.5" value="0"><output for="p-yaw">0</output></div>
+      <div class="row"><label for="p-pitch">角度 Y</label><input id="p-pitch" type="range" min="-30" max="30" step="0.5" value="0"><output for="p-pitch">0</output></div>
+      <div class="row"><label for="p-roll">角度 Z</label><input id="p-roll" type="range" min="-30" max="30" step="0.5" value="0"><output for="p-roll">0</output></div>
+    </section>
+
+    <section aria-labelledby="h-eye">
+      <h2 id="h-eye">目と眉</h2>
+      <div class="row"><label for="p-eye">目の開き</label><input id="p-eye" type="range" min="0" max="1" step="0.01" value="1"><output for="p-eye">1.00</output></div>
+      <div class="row"><label for="p-gx">目玉 X</label><input id="p-gx" type="range" min="-1" max="1" step="0.01" value="0"><output for="p-gx">0.00</output></div>
+      <div class="row"><label for="p-gy">目玉 Y</label><input id="p-gy" type="range" min="-1" max="1" step="0.01" value="0"><output for="p-gy">0.00</output></div>
+      <div class="row"><label for="p-brow">眉の上下</label><input id="p-brow" type="range" min="-1" max="1" step="0.01" value="0"><output for="p-brow">0.00</output></div>
+    </section>
+
+    <section aria-labelledby="h-mouth">
+      <h2 id="h-mouth">口</h2>
+      <div class="row"><label for="p-mouth">口の開き</label><input id="p-mouth" type="range" min="0" max="1" step="0.01" value="0"><output for="p-mouth">0.00</output></div>
+      <div class="btns vowels" id="vowels" role="group" aria-label="口の形">
+        <button type="button" data-v="0" aria-pressed="true">あ</button>
+        <button type="button" data-v="1" aria-pressed="false">い</button>
+        <button type="button" data-v="2" aria-pressed="false">う</button>
+        <button type="button" data-v="3" aria-pressed="false">え</button>
+        <button type="button" data-v="4" aria-pressed="false">お</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-voice">
+      <h2 id="h-voice">声で口パク</h2>
+      <div class="btns">
+        <button type="button" id="sample">サンプルの声</button>
+        <label class="file">音声ファイル…<input id="file" type="file" accept="audio/*"></label>
+        <button type="button" id="mic">マイク</button>
+        <button type="button" id="stop" disabled>止める</button>
+      </div>
+      <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+      <p class="note" id="voice-note">声の大きさで口が開き、声のひびきで「あいうえお」の形になります。</p>
+    </section>
+
+    <section aria-labelledby="h-auto">
+      <h2 id="h-auto">自動の動き</h2>
+      <div class="toggles">
+        <button type="button" data-auto="follow" aria-pressed="false">マウスを見る</button>
+        <button type="button" data-auto="blink" aria-pressed="true">まばたき</button>
+        <button type="button" data-auto="idle" aria-pressed="true">首のゆれ</button>
+        <button type="button" data-auto="breath" aria-pressed="true">呼吸</button>
+        <button type="button" data-auto="saccade" aria-pressed="true">視線</button>
+        <button type="button" data-auto="sway" aria-pressed="true">髪のゆれ</button>
+      </div>
+      <div class="row"><label for="p-hair">髪の量</label><input id="p-hair" type="range" min="0" max="2.5" step="0.05" value="1"><output for="p-hair">1.00</output></div>
+    </section>
+
+    <section aria-labelledby="h-save">
+      <h2 id="h-save">保存</h2>
+      <div class="btns">
+        <button type="button" id="shot">画像を保存</button>
+        <button type="button" id="rec">録画</button>
+      </div>
+      <p class="note" id="save-note">録画は声も一緒に webm で保存します。</p>
+    </section>
+  </aside>
+</div>
+<script>window.TP_EXTERNAL_LOOP = true; window.TP_SIZE = Math.min(1254, Math.max(640, Math.round(Math.min(screen.width, screen.height) * (window.devicePixelRatio || 1) * 0.9)));</script>
+<script src="player.js"></script>
+<script src="studio.js"></script>
+</body></html>

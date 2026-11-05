@@ -42,7 +42,8 @@ Only two kinds of motion exist: frame switching and root rotation of hair. Optic
 2. Generate the variants: `bash prompts/make_keys.sh gen` (Codex CLI) then `python tools/check_variants.py --gen gen` until everything is OK.
 3. Build the layers: copy `gen/config.example.json` to `gen/config.json`, adjust the hair strands, then `python tools/build_layers.py --gen gen --out player/assets`.
 4. Make a video: `python tools/make_video.py voice.wav out/talk.mp4 --timeline docs/timeline.example.json` (`--w 1080 --h 1920` for portrait, `--alpha` to also keep transparent PNG frames).
-5. Check: `python tools/serve.py` → http://127.0.0.1:8765/ , or `python tools/preview.py out/check.png --times 0,1.5,3`.
+5. Play with it: `python tools/serve.py` → http://127.0.0.1:8765/studio.html — a Live2D-style parameter panel (angle X/Y/Z, eye open, eyeball X/Y, brows, mouth open and vowel shape, hair), expression buttons, drag to turn the head, follow the mouse, lip sync from a sample voice, an audio file or the microphone, and PNG / webm (with voice) saving. Scriptable through `window.TP`.
+6. Check: `python tools/serve.py` → http://127.0.0.1:8765/ , or `python tools/preview.py out/check.png --times 0,1.5,3`.
 
 **No image-editing AI?** `tools/make_variants_local.py` builds the same variants from the source alone: blinks slide the original upper-lash band down and fill the lid with skin, closed/smile/half-lidded eyes follow arcs between the eye corners you give, the mouth line is inpainted, and the hair is detached with an exact alpha (`hair_alpha.png`, used by `build_layers.py`), so the still frame stays identical to the source. Start from `gen/config.local.example.json`.
 

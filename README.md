@@ -123,7 +123,20 @@ python tools/make_video.py demo/narumi.wav out/narumi.mp4 --timeline demo/narumi
 - まばたきの間隔は決定論的な乱数で決まります（`export.py --seed` で変えられます）
 - ブラウザが見つからないときは `CHROMIUM_PATH=/path/to/chrome` で指定できます
 
-### 5. 確認する
+### 5. Web で動かす（なるみスタジオ）
+
+```bash
+python tools/serve.py        # → http://127.0.0.1:8765/studio.html
+```
+
+Live2D のパラメーター盤のように、角度 X/Y/Z・目の開き・目玉 X/Y・眉・口の開きと形（あいうえお）・髪の揺れをつまみで動かせます。
+
+- 表情ボタン（通常・笑顔・ジト目・驚き・目を閉じる）、絵をドラッグして顔の向き、「マウスを見る」で顔と目がカーソルを追う
+- 声で口パク：サンプルの声（`player/assets/voice.wav`）・音声ファイル・マイク（声の大きさ＝口の開き、ひびき＝あいうえお）
+- 自動の動き（まばたき・首のゆれ・呼吸・視線・髪のゆれ）の入り切り、画像の保存と録画（声つき webm）
+- 外から動かすときは `window.TP`（`TP.manual = true` にして `TP.params` を変え、`TP.render(t)`）
+
+### 6. 確認する
 
 ```bash
 python tools/serve.py                       # → http://127.0.0.1:8765/  「声と一緒に再生」（player/assets/voice.wav を置く）
@@ -162,6 +175,7 @@ python tools/make_video.py 声.wav out/b.mp4 --assets assets_b
 
 ```
 player/   index.html, player.js        再生（WebGL）。assets/ に層が入る
+          studio.html, studio.js       なるみスタジオ（つまみ・マウス・声で動かす）
 tools/    build_layers.py              描き分け → 層
           make_variants_local.py       画像編集 AI を使わずに描き分けを作る
           tts_voice.py                 台本 → 試し用の声・表情・字幕

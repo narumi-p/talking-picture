@@ -279,6 +279,7 @@
     return { yaw: yaw * MOTION, pitch: pitch * MOTION, roll: roll * MOTION, brow, breath: breath * MOTION, gaze: [gx * MOTION, gy * MOTION] };
   }
   window.render = function (t) {
+    if (window.TP && window.TP.manual) return renderManual(t);
     const L = lipsAt(t);
     // 目：まばたき（開→25%→半目→75%→閉じ）。表情の間はまばたきしない
     let fa = 0, fb = 0, fr = 0;
@@ -313,21 +314,78 @@
       if (ov.pitch !== undefined) turn[1] = (hd.pitch_px ?? N * 0.008) * ov.pitch;
       if (ov.brow !== undefined) browDy = (hd.brow_px ?? N * 0.012) * ov.brow;
     }
+    draw(t, fa, fb, fr, L.open, L.shape, ov && ov.still ? 0 : tilt, th, turn, browDy, breath, gaze);
+  };
+  function draw(t, fa, fb, fr, open, shape, tilt, th, turn, browDy, breath, gaze) {
     gl.viewport(0, 0, W, H);
     if (ALPHA) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
-    gl.uniform1f(U('tilt'), ov && ov.still ? 0 : tilt);
+    gl.uniform1f(U('tilt'), tilt);
     gl.uniform1fv(U('theta'), th);
     gl.uniform2fv(U('turn'), turn); gl.uniform1f(U('browDy'), browDy); gl.uniform1f(U('breath'), breath); gl.uniform2fv(U('gaze'), gaze);
     gl.uniform1f(U('eyeA'), fa); gl.uniform1f(U('eyeB'), fb); gl.uniform1f(U('eyeMix'), fr);
-    gl.uniform1f(U('mOpen'), L.open); gl.uniform1fv(U('mShape'), L.shape);
+    gl.uniform1f(U('mOpen'), open); gl.uniform1fv(U('mShape'), shape);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    window.state = { t, open: L.open, eye: [fa, fb, fr], tilt, turn, browDy, gaze };
+    window.state = { t, open, eye: [fa, fb, fr], tilt, turn, browDy, gaze };
+  }
+
+  // ── 手で動かす（studio.html など）：window.TP.manual = true にすると、TP.params の値で描く ──
+  //   params: yaw/pitch/roll（顔の向き、-1.5〜1.5）、eyeOpen（1 開 〜 0 閉）、expr（'' / 'smile' / 'jito'）と exprK（0〜1）、
+  //           gazeX/gazeY（視線 -1〜1）、brow（眉 -1 下 〜 1 上）、mouthOpen（0〜1）、shape（[あ,い,う,え,お]）、hair（髪の揺れの倍率）
+  //   auto:   blink（自動まばたき）、idle（ゆっくり首を動かす）、breath（呼吸）、saccade（視線をときどき移す）、sway（髪の揺れ）
+  //   live:   {open, shape}（マイクや音声ファイルから。口の開きは params と大きい方）
+  const TP = window.TP = {
+    manual: false,
+    params: { yaw: 0, pitch: 0, roll: 0, eyeOpen: 1, expr: '', exprK: 0, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, shape: [1, 0, 0, 0, 0], hair: 1 },
+    auto: { blink: true, idle: true, breath: true, saccade: true, sway: true },
+    live: null,
+    render: (t) => window.render(t),
   };
+  let prevYaw = 0, prevT = 0;
+  function renderManual(t) {
+    const p = TP.params, a = TP.auto, hd = cfg.head || {}, N = cfg.size;
+    const tt = t % 600;
+    // 目：表情があればそのコマへ、なければ「開き」と自動まばたきの閉じた方
+    let fa = 0;
+    const path = p.expr && cfg.eye.expr[p.expr];
+    if (path && p.exprK > 0.02) fa = path[Math.min(path.length - 1, Math.round(p.exprK * (path.length - 1)))];
+    else {
+      const c = Math.max(1 - p.eyeOpen, a.blink ? blinkAt(tt) : 0); const lid = cfg.eye.blink_lid;
+      for (let i = 1; i < lid.length; i++) if (Math.abs(lid[i] - c) < Math.abs(lid[fa] - c)) fa = i;
+    }
+    // 口：手で決めた開きと、声（live）の大きい方
+    const lv = TP.live; let open = p.mouthOpen, shape = p.shape;
+    if (lv && lv.open > open) { open = lv.open; shape = lv.shape; }
+    // 顔の向き：手の値＋ゆっくりの揺れ。声の強い所で少しうなずく
+    const idle = a.idle ? 1 : 0;
+    const nod = lv ? Math.max(0, (lv.open - (lv.avg || 0))) : 0;
+    const yaw = p.yaw + idle * 0.3 * wob(tt, 6.3, 3.7, 2.3, 0.4);
+    const pitch = p.pitch + idle * 0.22 * wob(tt, 5.1, 2.9, 1.7, 1.9) + 0.8 * nod;
+    const roll = p.roll + idle * 0.3 * wob(tt, 7.7, 4.1, 2.6, 2.8);
+    const tilt = (hd.roll_deg ?? 1.0) * Math.PI / 180 * roll;
+    // 視線：手の値（マウス）＋ときどき移す。頭と逆に少し
+    let [sx, sy] = a.saccade && saccades.length ? saccadeAt(tt) : [0, 0];
+    const gx = Math.max(-1.3, Math.min(1.3, p.gazeX + sx * 0.35 - (yaw - p.yaw) * 0.5));
+    const gy = Math.max(-1.3, Math.min(1.3, p.gazeY + sy * 0.3 - (pitch - p.pitch) * 0.4));
+    // 髪：揺れ＋首を振った勢いで遅れてついてくる
+    const dt = Math.max(1e-3, t - prevT); const vel = Math.max(-3, Math.min(3, (yaw - prevYaw) / dt)); prevYaw = yaw; prevT = t;
+    const sw = a.sway ? p.hair : 0;
+    const th = cfg.strands.map((s, i) => {
+      const ph = i * 1.37, ph2 = i * 2.11 + 0.5;
+      const deg = s.amp * sw * (0.62 * Math.sin(2 * Math.PI * tt / 3.2 + ph) + 0.38 * Math.sin(2 * Math.PI * tt / 1.9 + ph2));
+      const lag = -vel * 1.2 * Math.sign(s.pts[s.pts.length - 1][0] - s.pts[0][0] || 1);
+      return (deg + lag) * Math.PI / 180 - tilt * 0.6;
+    });
+    const turn = [(hd.yaw_px ?? N * 0.013) * yaw, (hd.pitch_px ?? N * 0.008) * pitch];
+    const browDy = -(hd.brow_px ?? N * 0.012) * (p.brow + 0.4 * nod);
+    const breath = a.breath ? -(hd.breath_px ?? N * 0.0016) * (0.5 + 0.5 * Math.sin(2 * Math.PI * tt / 3.6)) : 0;
+    const gaze = [(hd.gaze_px ?? N * 0.006) * gx, (hd.gaze_px ?? N * 0.006) * 0.6 * gy];
+    draw(t, fa, fa, 0, open, shape, tilt, th, turn, browDy, breath, gaze);
+  }
 
   (async () => {
     cfg = await (await fetch(A + 'config.json?v=' + Date.now())).json();
     const N = cfg.size;
-    W = +(qs.get('w') || N); H = +(qs.get('h') || N); cv.width = W; cv.height = H;
+    W = +(qs.get('w') || window.TP_SIZE || N); H = +(qs.get('h') || window.TP_SIZE || N); cv.width = W; cv.height = H;   // TP_SIZE：埋め込み先で大きさを決めるとき
     // 絵の置き方：横幅に合わせ、縦長のときは下に寄せる（上は背景の色が続く）
     const sc = Math.min(W, H) / N;
     gl.uniform2fv(U('outSize'), [W, H]); gl.uniform3fv(U('view'), [sc, (W - N * sc) / 2, H - N * sc]);
@@ -354,10 +412,11 @@
     buildEnv();
     const tl = qs.get('timeline') || (qs.has('export') ? '' : A + 'timeline.json');
     if (tl) { try { const T = await (await fetch(tl + '?v=' + Date.now())).json(); events = T.events || []; } catch (e) { events = []; } }
-    blinks = buildBlinks(lips ? lips.duration : 30, +(qs.get('seed') || 7));
-    saccades = buildSaccades(lips ? lips.duration : 30, +(qs.get('seed') || 7));
+    blinks = buildBlinks(Math.max(lips ? lips.duration : 0, 600), +(qs.get('seed') || 7));   // 手で動かすときのため 10 分ぶん（前の方は同じ）
+    saccades = buildSaccades(Math.max(lips ? lips.duration : 0, 600), +(qs.get('seed') || 7));
     window.ready = true;
-    if (!qs.has('export')) {                                                    // 画面で見るとき：音と一緒に再生
+    window.dispatchEvent(new Event('tp-ready'));
+    if (!qs.has('export') && !window.TP_EXTERNAL_LOOP) {                                                    // 画面で見るとき：音と一緒に再生
       const au = new Audio(qs.get('audio') || A + 'voice.wav'); let t0 = performance.now();
       const btn = document.getElementById('play');
       if (btn) btn.onclick = () => { t0 = performance.now(); if (au) { au.currentTime = 0; au.play(); } };
