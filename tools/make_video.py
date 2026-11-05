@@ -1,5 +1,5 @@
 """声（wav）から喋る動画を作る：音声→口の動き→1コマずつ描画→mp4。
-python tools/make_video.py <voice.wav> <out.mp4> [--timeline 表情.json] [--subs 字幕.json] [--w 1080 --h 1080] [--assets assets] [--alpha]
+python tools/make_video.py <voice.wav> <out.mp4> [--timeline 表情.json] [--subs 字幕.json] [--w 1080 --h 1920（既定は絵の大きさ）] [--assets assets] [--alpha]
 表情.json の例: {"events": [{"t": 2.0, "dur": 1.2, "expr": "smile"}, {"t": 5.0, "dur": 1.0, "expr": "jito"}]}
 字幕.json の例: [{"t": 0.5, "dur": 2.1, "text": "こんにちは"}]（tts_voice.py が作る）。--font で字体（既定 IPAGothic）
 """
@@ -8,7 +8,7 @@ from pathlib import Path
 R = Path(__file__).resolve().parent.parent
 ap = argparse.ArgumentParser()
 ap.add_argument("voice"); ap.add_argument("out"); ap.add_argument("--timeline", default="")
-ap.add_argument("--w", default="1080"); ap.add_argument("--h", default="1080"); ap.add_argument("--assets", default="assets")
+ap.add_argument("--w", default="0"); ap.add_argument("--h", default="0"); ap.add_argument("--assets", default="assets")   # w/h 0＝絵の大きさ
 ap.add_argument("--fps", default="30"); ap.add_argument("--alpha", action="store_true")
 ap.add_argument("--subs", default=""); ap.add_argument("--font", default="IPAGothic")
 A = ap.parse_args()
@@ -22,7 +22,8 @@ subprocess.run(cmd, check=True)
 Path(A.out).parent.mkdir(parents=True, exist_ok=True)
 if A.subs:                                                                         # 字幕を焼き込む（ASS → libass）
     import json
-    W, H = int(A.w), int(A.h); fs = max(24, int(min(W, H) * 0.045))
+    import json as _j
+    W, H = (int(A.w) or _j.load(open(R / "player" / A.assets / "config.json"))["size"]), (int(A.h) or _j.load(open(R / "player" / A.assets / "config.json"))["size"]); fs = max(24, int(min(W, H) * 0.045))
     ts = lambda v: f"{int(v // 3600)}:{int(v % 3600 // 60):02d}:{v % 60:05.2f}"
     ass = [f"[Script Info]\nScriptType: v4.00+\nPlayResX: {W}\nPlayResY: {H}\nWrapStyle: 0\n",
            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",

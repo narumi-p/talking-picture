@@ -12,3 +12,5 @@ Thumbs.db
 demo/*.wav
 demo/*_timeline.json
 demo/*_subs.json
+# 音声合成の声（tools/tts_voice.py が取ってくる）
+voices/

@@ -255,11 +255,13 @@ nm = rd("no_mouth.png")
 if nm is not None:
     mx_lo, my_lo, mx_hi, my_hi = C["mouth_region"]
     d = np.abs(nm - bald).max(2); m = cv2.morphologyEx((d > 14).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    lab, n = ndi.label(m); best = None
-    for i in range(n):
+    lab, n = ndi.label(m); ids = []
+    for i in range(n):                                                           # 口の範囲の中のかたまりを全部（線が細く途切れていても 1 つの口に）
         yy_, xx_ = np.nonzero(lab == i + 1)
         if len(yy_) < 30: continue
-        if mx_lo < xx_.mean() < mx_hi and my_lo < yy_.mean() < my_hi and (best is None or len(yy_) > best[0]): best = (len(yy_), i + 1)
+        if mx_lo < xx_.mean() < mx_hi and my_lo < yy_.mean() < my_hi: ids.append(i + 1)
+    best = (0, -1) if ids else None
+    if ids: lab = np.where(np.isin(lab, ids), -1, lab)
     if best:
         yy_, xx_ = np.nonzero(lab == best[1])
         mx0, mx1, my0, my1 = xx_.min(), xx_.max(), yy_.min(), yy_.max()
@@ -285,6 +287,45 @@ if nm is not None:
 else:
     print("no_mouth.png が無い → 口は動かさない")
 
+# ── 7.5) 眉（任意）：眉の濃さ brow_alpha.png と眉を消した肌 no_brow.png があれば、上げ下げできる層にする ──
+brow = None
+_ba = cv2.imread(str(G / "brow_alpha.png"), cv2.IMREAD_GRAYSCALE); _nb = rd("no_brow.png")
+if _ba is not None and _nb is not None:
+    if _ba.shape != (N, N): _ba = cv2.resize(_ba, (N, N), interpolation=cv2.INTER_AREA)
+    ba = _ba.astype(np.float32) / 255.0
+    ys_, xs_ = np.nonzero(ba > 0.02)
+    if len(ys_):
+        pad = int(N * 0.03)                                                        # 動かす幅のぶんの余白
+        bx0, bx1 = max(0, xs_.min() - pad), min(N, xs_.max() + pad); by0, by1 = max(0, ys_.min() - pad), min(N, ys_.max() + pad)
+        bskin = base.copy(); bm = cv2.GaussianBlur(cv2.dilate((ba > 0.02).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(np.float32), (0, 0), 1.5)[..., None]
+        bskin = bskin * (1 - bm) + _nb * bm                                         # 眉の所だけ、眉を消した肌
+        a_ = ba[..., None]
+        need = np.where(src < bskin, 1 - src / np.maximum(bskin, 1), (src - bskin) / np.maximum(255 - bskin, 1)).max(2)[..., None]
+        a_ = np.where(a_ > 0.004, np.maximum(a_, need), 0)                           # 肌の上に重ねて元の色に戻る濃さ
+        Hb = np.clip(np.where(a_ > 0.02, (src - (1 - a_) * bskin) / np.maximum(a_, 0.02), src), 0, 255)
+        cv2.imwrite(str(A / "brows.png"), np.dstack([Hb, a_ * 255])[by0:by1, bx0:bx1].astype(np.uint8))
+        cv2.imwrite(str(A / "browskin.png"), bskin[by0:by1, bx0:bx1].astype(np.uint8))
+        brow = {"rect": [int(bx0), int(by0), int(bx1), int(by1)]}
+        print("眉:", brow)
+
+# ── 7.6) 黒目（任意）：iris_alpha.png・no_iris.png・eye_open.png があれば、視線を動かせる層にする（目の範囲で切り出す） ──
+iris = None
+_ia = cv2.imread(str(G / "iris_alpha.png"), cv2.IMREAD_GRAYSCALE); _ni = rd("no_iris.png"); _eo = cv2.imread(str(G / "eye_open.png"), cv2.IMREAD_GRAYSCALE)
+if _ia is not None and _ni is not None and _eo is not None:
+    if _ia.shape != (N, N): _ia = cv2.resize(_ia, (N, N), interpolation=cv2.INTER_AREA); _eo = cv2.resize(_eo, (N, N), interpolation=cv2.INTER_AREA)
+    ia = _ia.astype(np.float32)[..., None] / 255.0; eo = _eo.astype(np.float32)[..., None] / 255.0
+    sc = base * (1 - eo) + _ni * eo                                                 # 目の開いた所だけ、黒目を消した白目
+    need = np.where(src < sc, 1 - src / np.maximum(sc, 1), (src - sc) / np.maximum(255 - sc, 1)).max(2)[..., None]
+    ia = np.where((ia > 0.004) & (eo > 0.02), np.maximum(ia, need), ia)
+    Hi = np.clip(np.where(ia > 0.02, (src - (1 - ia) * sc) / np.maximum(ia, 0.02), src), 0, 255)
+    Hi = np.where(eo > 0.5, Hi, src)                                                # まぶたの下は元の画素（ずらしたとき影のように見える）
+    ex0_, ey0_, ex1_, ey1_ = ex0, ey0, ex1, ey1
+    cv2.imwrite(str(A / "iris.png"), np.dstack([Hi, ia * 255])[ey0_:ey1_, ex0_:ex1_].astype(np.uint8))
+    cv2.imwrite(str(A / "sclera.png"), sc[ey0_:ey1_, ex0_:ex1_].astype(np.uint8))
+    cv2.imwrite(str(A / "eyeopen.png"), np.dstack([eo, eo, eo])[ey0_:ey1_, ex0_:ex1_].__mul__(255).astype(np.uint8))
+    iris = {"rect": [int(ex0_), int(ey0_), int(ex1_), int(ey1_)]}
+    print("黒目:", iris)
+
 # ── 8) 揺らす髪（根元→毛先）と重み ──
 yy, xx = np.mgrid[0:N, 0:N].astype(np.float32)
 W = np.zeros((9, N, N), np.float32); S = np.zeros((9, N, N), np.float32)
@@ -305,6 +346,6 @@ for k in range(3):   # 9 本を RGB×3 枚に詰める（重みと根元から�
     cv2.imwrite(str(A / f"ss{k}.png"), np.clip(np.dstack([S[3 * k + 2], S[3 * k + 1], S[3 * k]]) * 255, 0, 255).astype(np.uint8))
 
 cfg = {"size": N, "eye": {"rect": [int(ex0), int(ey0), int(ex1), int(ey1)], "blink_frames": blink_n, "blink_lid": blink_lid, "keys": len(KF), "sub": SUB, "expr": expr, "count": len(frames)},
-       "mouth": mouth, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"]}
+       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head")}
 json.dump(cfg, open(A / "config.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 print("書き出し:", A)

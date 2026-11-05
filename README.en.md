@@ -1,8 +1,8 @@
 # Talking Picture
 
-Make a single character illustration talk **with its original pixels untouched**: blinking, lip sync, expressions and swaying hair. At rest the output is identical to the source image.
+Make a single character illustration talk **with its original pixels untouched**: blinking, lip sync, expressions, brows, swaying hair and a Live2D-like head turn. At rest the output is identical to the source image (when exported at the image's own size).
 
-- The face never turns (turning distorts the drawing, so it is deliberately left out).
+- The head turn is a depth-based shift only (the face is treated as an ellipsoid, nose closest; outer hair slightly in front, the back slightly behind), sampled with Catmull-Rom, so nothing is redrawn. Large turns are not possible.
 - Nothing is warped. Only the moving parts switch between frames drawn by an image-editing AI.
 - Every frame is rendered deterministically, so the same input always gives the same video.
 

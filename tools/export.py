@@ -1,5 +1,6 @@
 """喋る絵の書き出し：ブラウザ（headless Chromium）で 1 コマずつ render(t) → PNG 連番 → 声と合わせて mp4。
-python tools/export.py --audio <voice.wav> --lips <lips.json> --out out/demo [--fps 30 --w 1080 --h 1080 --timeline <tl.json> --assets assets --seed 7]
+python tools/export.py --audio <voice.wav> --lips <lips.json> --out out/demo [--fps 30 --w 1080 --h 1920 --timeline <tl.json> --assets assets --seed 7]
+  --w/--h  書き出しの大きさ（既定は絵の大きさのまま＝止まった絵が元の絵と同じ画素）。縦長は絵を下に寄せる
   --assets  player/ の中の層のフォルダ名（複数のキャラを置くとき。既定 assets）
   --alpha   背景を透明にした連番 PNG も残す（動画編集ソフトに重ねるとき）
 出力: <out>/frames/f_00000.png …, <out>/talk.mp4（決定論：同じ入力なら同じコマ）
@@ -13,7 +14,7 @@ import serve
 ROOT = Path(__file__).resolve().parent.parent
 ap = argparse.ArgumentParser()
 ap.add_argument("--audio", required=True); ap.add_argument("--lips", required=True); ap.add_argument("--out", required=True)
-ap.add_argument("--fps", type=int, default=30); ap.add_argument("--w", type=int, default=1080); ap.add_argument("--h", type=int, default=1080)
+ap.add_argument("--fps", type=int, default=30); ap.add_argument("--w", type=int, default=0); ap.add_argument("--h", type=int, default=0)   # 0＝絵の大きさのまま
 ap.add_argument("--timeline", default=""); ap.add_argument("--seed", default="7")
 ap.add_argument("--player", default=str(ROOT / "player")); ap.add_argument("--assets", default="assets")
 ap.add_argument("--tail", type=float, default=0.6, help="声の後ろに足す秒数")
@@ -32,6 +33,8 @@ if A.timeline: put(A.timeline, "timeline.json"); tl = f"&timeline={A.assets}/tim
 dur = json.load(open(A.lips))["duration"] + A.tail
 n = int(round(dur * A.fps))
 srv, base = serve.start(A.player)
+size = json.load(open(ASSETS / "config.json"))["size"]
+A.w = A.w or size; A.h = A.h or size
 url = f"{base}/index.html?export=1&w={A.w}&h={A.h}&assets={A.assets}&lips={A.assets}/lips.json&seed={A.seed}{tl}" + ("&alpha=1" if A.alpha else "")
 t0 = time.time()
 with sync_playwright() as p:

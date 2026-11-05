@@ -1,6 +1,8 @@
 """画像編集 AI を使わずに、元の絵 1 枚から描き分け（部品）をコードで作る。
   目のコマ  ＝ 上まぶた（まつ毛の帯）を元の画素のまま下へ滑らせ、空いた所を上の肌の色で埋める
   表情      ＝ 笑顔（まぶたを ∩ の形で閉じる）・ジト目（まぶたを平らに半分まで下ろす）
+  眉        ＝ 眉の濃さ brow_alpha.png と、眉を消した肌 no_brow.png（上げ下げはシェーダー）
+  黒目      ＝ 黒目の濃さ iris_alpha.png、黒目を消した白目 no_iris.png、目の開いた所 eye_open.png（視線はシェーダー）
   口なし    ＝ 口の線だけを周りの肌で埋める（開いた口はシェーダーが描く）
   髪なし    ＝ 髪を外し、人物の上は周りの色で埋め（inpaint）、外は背景色にする
   髪だけ    ＝ 髪の画素を残して緑地に
@@ -15,6 +17,7 @@ python tools/make_variants_local.py [--gen gen] [--debug out/variants_debug.png]
   "body_poly": [[0, 895], ...]                            服（髪と同じ色の所）の多角形。髪の判定から外す
   "face_poly": [[...], ...]                               顔・耳・首の多角形（中の暗い所は外の髪とつながる毛だけを髪とみなす）
   "keep_boxes": [[x0, y0, x1, y1], ...]                   髪にしない所（眉・口など。目は自動で外す）。髪の毛に掛からないよう小さめに
+  "brows": [[x0, y0, x1, y1], ...]                        眉の範囲（上げ下げする。眉は keep_boxes にも入れておく）
   "hair_ymax": 870                                        これより下は髪として扱わない
 
 AI-free variants: slides the original upper-lash band down for blinks, inpaints the mouth line,
@@ -267,6 +270,74 @@ def remove_mouth(img):
     return out * (1 - mm) + bl * mm, full
 
 
+# ───────────────────────── 眉 ─────────────────────────
+def brow_alpha():
+    """眉の濃さ（0〜1）。眉の箱の中の、いちばん大きい暗いかたまり＋ふち。肌との混ざり具合を濃さにする"""
+    out = np.zeros((N, N), np.float32)
+    for x0, y0, x1, y1 in L.get("brows", []):
+        y = Y[y0:y1, x0:x1]
+        skinY = float(np.percentile(y, 80)); inkY = float(np.percentile(y, 2))
+        m = (y < (skinY + inkY) / 2).astype(np.uint8)
+        lab, n = ndi.label(m)
+        if n == 0: continue
+        sizes = ndi.sum(m, lab, range(1, n + 1)); main = lab == 1 + int(np.argmax(sizes))
+        near = cv2.dilate(main.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0
+        a = np.clip((skinY - 3 - y) / max(skinY - inkY, 1), 0, 1) * near
+        out[y0:y1, x0:x1] = np.maximum(out[y0:y1, x0:x1], a)
+    return out
+
+
+# ───────────────────────── 黒目（視線） ─────────────────────────
+def iris_layers(base_img):
+    """黒目（楕円）の濃さ・黒目を消した白目・目の開いた所（上まつ毛の帯の下〜下まつ毛の上）。
+    黒目は赤みの強い所に楕円を当てはめる。黒目の下の白目は、行ごとに左右の白目の色を直線でつなぐ"""
+    a = np.zeros((N, N), np.float32); opening = np.zeros((N, N), np.float32)
+    out = base_img.copy()
+    b, g, r = S[..., 0], S[..., 1], S[..., 2]
+    yy, xx = np.mgrid[0:N, 0:N].astype(np.float32)
+    for spec in L.get("eyes", []):
+        geo = eye_geometry(spec)
+        op = np.zeros((N, N), np.uint8)
+        for x in range(geo["x0"] + 3, geo["x1"] - 2):
+            ya = int(np.ceil(geo["top"][x] + geo["T"] * 0.8)); yb = int(np.floor(geo["bot"][x] - 2))
+            if yb > ya: op[ya:yb, x] = 1
+        cand = (op.astype(bool) & (((r - g) > 45) | (Y < 150))).astype(np.uint8)
+        cand = cv2.erode(cand, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))  # 細いつながり（目じりの赤み・影）を切る
+        lab, n = ndi.label(cand)
+        if n == 0: continue
+        sizes = ndi.sum(cand, lab, range(1, n + 1)); main = lab == 1 + int(np.argmax(sizes))
+        main = cv2.dilate(main.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 0
+        ys_, xs_ = np.nonzero(main & op.astype(bool))
+        if len(xs_) < 50: continue
+        ex0, ex1 = np.percentile(xs_, [0.5, 99.5]); ey1 = np.percentile(ys_, 99.5)
+        cx = (ex0 + ex1) / 2; rx = (ex1 - ex0) / 2 + 2; ry = rx * float(spec.get("iris_aspect", 1.15))
+        cy = ey1 + 1 - ry                                                             # 下の端に合わせる（上はまぶたに隠れている）
+        d = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2)
+        el = np.clip((1.0 - d) * rx / 1.2 + 0.5, 0, 1)                                # ふち 1 画素ぶんなめらかに
+        opf = cv2.GaussianBlur(op.astype(np.float32), (0, 0), 0.8)
+        a = np.maximum(a, el); opening = np.maximum(opening, opf)                      # 黒目はまぶたで切らない（ずらしたとき上に隙間が出ない）
+        # 白目：行ごとに、黒目の外の明るい所（白目）の左右の色を直線でつなぐ。見つからない行は近い行の色
+        sclera = op.astype(bool) & (d > 1.08) & (Y > 190) & (np.abs(r - b) < 30)
+        rows = {}
+        y_lo, y_hi = int(cy - ry) - 2, int(cy + ry) + 3
+        for y in range(max(0, y_lo), min(N, y_hi)):
+            xl = [x for x in range(int(cx - rx) - 1, int(cx - rx) - 40, -1) if 0 <= x < N and sclera[y, x]][:4]
+            xr = [x for x in range(int(cx + rx) + 1, int(cx + rx) + 40) if 0 <= x < N and sclera[y, x]][:4]
+            if xl or xr:
+                cl = np.mean([S[y, x] for x in xl], 0) if xl else None; cr = np.mean([S[y, x] for x in xr], 0) if xr else None
+                rows[y] = (cl if cl is not None else cr, cr if cr is not None else cl)
+        if rows:
+            ks = np.array(sorted(rows))
+            for y in range(max(0, y_lo), min(N, y_hi)):
+                cl, cr = rows[int(ks[np.argmin(np.abs(ks - y))])]
+                for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
+                    if not (0 <= x < N) or d[y, x] > 1.12 or not op[y, x]: continue
+                    u = np.clip((x - (cx - rx)) / (2 * rx), 0, 1)
+                    out[y, x] = cl * (1 - u) + cr * u
+        print(f"黒目: 中心 ({cx:.0f}, {cy:.0f}) 半径 {rx:.0f}×{ry:.0f}")
+    return a, opening, out
+
+
 # ───────────────────────── 書き出し ─────────────────────────
 hair, core, face, body = hair_masks()
 inside = face | body                                                                # 人物の中：髪の下を周りの色で埋める
@@ -306,6 +377,18 @@ for name, im in outs.items():
     cv2.imwrite(str(G / f"{name}.png"), np.clip(im, 0, 255).astype(np.uint8))
 nm, mm = remove_mouth(bald)
 cv2.imwrite(str(G / "no_mouth.png"), np.clip(nm, 0, 255).astype(np.uint8))
+if L.get("eyes"):                                                                  # 黒目（視線を動かす部品）と、黒目を消した白目
+    ia, op, ni = iris_layers(bald)
+    cv2.imwrite(str(G / "iris_alpha.png"), np.clip(ia * 255, 0, 255).astype(np.uint8))
+    cv2.imwrite(str(G / "eye_open.png"), np.clip(op * 255, 0, 255).astype(np.uint8))
+    cv2.imwrite(str(G / "no_iris.png"), np.clip(ni, 0, 255).astype(np.uint8))
+if L.get("brows"):                                                                 # 眉（上げ下げする部品）と、眉を消した肌
+    ba = brow_alpha()
+    cv2.imwrite(str(G / "brow_alpha.png"), np.clip(ba * 255, 0, 255).astype(np.uint8))
+    bm = cv2.dilate((ba > 0.02).astype(np.uint8), np.ones((5, 5), np.uint8))
+    nb = cv2.inpaint(np.clip(bald, 0, 255).astype(np.uint8), bm, 7, cv2.INPAINT_TELEA)
+    cv2.imwrite(str(G / "no_brow.png"), nb)
+    print("眉:", int((ba > 0.5).sum()), "画素")
 print("書き出し:", G, sorted(list(outs) + ["bald_open", "hair_only", "no_mouth"]))
 
 if DEBUG:
