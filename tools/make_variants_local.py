@@ -14,7 +14,7 @@ python tools/make_variants_local.py [--gen gen] [--debug out/variants_debug.png]
   "mouth_box": [440, 648, 575, 692]                      口の線の範囲
   "body_poly": [[0, 895], ...]                            服（髪と同じ色の所）の多角形。髪の判定から外す
   "face_poly": [[...], ...]                               顔・耳・首の多角形（中の暗い所は外の髪とつながる毛だけを髪とみなす）
-  "keep_boxes": [[x0, y0, x1, y1], ...]                   髪にしない所（眉・口など。目の範囲は自動で外す）
+  "keep_boxes": [[x0, y0, x1, y1], ...]                   髪にしない所（眉・口など。目は自動で外す）。髪の毛に掛からないよう小さめに
   "hair_ymax": 870                                        これより下は髪として扱わない
 
 AI-free variants: slides the original upper-lash band down for blinks, inpaints the mouth line,
@@ -64,8 +64,9 @@ def hair_masks():
     a[body] = red[body] * (notbg[body] > 10)                                        # 服（紺）は髪にしない。赤い毛先だけ
     a[int(L.get("hair_ymax", N)):] = 0
     for x0, y0, x1, y1 in L.get("keep_boxes", []): a[y0:y1, x0:x1] = 0             # 目・眉・口は髪にしない
-    for e in L.get("eyes", []):
-        x0, y0, x1, y1 = e["box"]; a[y0:y1, x0:x1] = 0
+    for e in L.get("eyes", []):                                                     # 目じり〜目がしらの間だけ（外の毛は切らない。切ると揺れたとき境目が線になる）
+        x0, y0, x1, y1 = e["box"]; xa, xb = sorted([e["outer"][0], e["inner"][0]])
+        a[y0:y1, max(x0, xa - 4):min(x1, xb + 5)] = 0
     # 顔の中の暗い所は、顔の外の髪とつながっているものだけ
     lab, n = ndi.label(a > 0.25)
     out_ids = np.unique(lab[(~face) & (~body) & (lab > 0)])

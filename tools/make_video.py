@@ -28,7 +28,17 @@ if A.subs:                                                                      
            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
            f"Style: Default,{A.font},{fs},&H00FFFFFF,&H00FFFFFF,&H00402A33,&H64000000,-1,0,0,0,100,100,0,0,1,{max(2, fs // 9)},1,2,{W // 14},{W // 14},{int(H * 0.05)},1\n",
            "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
+    per = max(8, int((W - 2 * (W // 14)) / (fs * 1.02)))                          # 1 行に入る文字数（日本語は空白で折り返されない）
+    def wrap(t):                                                                   # 行の長さがそろうよう、句読点の近くで折る
+        lines = []
+        while len(t) > per:
+            n = -(-len(t) // per); goal = len(t) / n
+            cands = [i + 1 for i, ch in enumerate(t[:per]) if ch in "、。，．！？!? " and i + 1 >= goal * 0.5]
+            cut = min(cands, key=lambda c: abs(c - goal)) if cands else per
+            lines.append(t[:cut]); t = t[cut:]
+        return "\\N".join(lines + [t])
     for e in json.load(open(A.subs, encoding="utf-8")):
+        e = dict(e, text=wrap(e["text"]))
         ass.append(f"Dialogue: 0,{ts(e['t'])},{ts(e['t'] + e['dur'] + 0.15)},Default,,0,0,0,,{e['text']}")
     (work / "subs.ass").write_text("\n".join(ass) + "\n", encoding="utf-8")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(work / "talk.mp4"), "-vf", "ass=subs.ass",
