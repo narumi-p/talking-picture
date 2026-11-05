@@ -378,7 +378,19 @@ for k in range(3):   # 9 本を RGB×3 枚に詰める（重みと根元から�
     cv2.imwrite(str(A / f"sw{k}.png"), np.clip(np.dstack([W[3 * k + 2], W[3 * k + 1], W[3 * k]]) * 255, 0, 255).astype(np.uint8))
     cv2.imwrite(str(A / f"ss{k}.png"), np.clip(np.dstack([S[3 * k + 2], S[3 * k + 1], S[3 * k]]) * 255, 0, 255).astype(np.uint8))
 
+# 頬（照れの赤み）：目の中心の少し下。目の位置が分からなければ目の範囲の左右から
+cheeks = None
+_eyes = (C.get("local") or {}).get("eyes")
+if _eyes:
+    cheeks = []
+    for e_ in _eyes:
+        (ox_, oy_), (ix_, iy_) = e_["outer"], e_["inner"]; ew_ = abs(ox_ - ix_)
+        cheeks.append([round((ox_ + ix_) / 2 + (ox_ - ix_) * 0.12, 1), round((oy_ + iy_) / 2 + 0.62 * ew_, 1), round(0.42 * ew_, 1)])
+    cheeks.sort(key=lambda c_: c_[0])
+else:
+    w_ = (ex1 - ex0) / 2
+    cheeks = [[ex0 + w_ * 0.45, ey1 + w_ * 0.15, w_ * 0.4], [ex1 - w_ * 0.45, ey1 + w_ * 0.15, w_ * 0.4]]
 cfg = {"size": N, "eye": {"rect": [int(ex0), int(ey0), int(ex1), int(ey1)], "blink_frames": blink_n, "blink_lid": blink_lid, "keys": len(KF), "sub": SUB, "expr": expr, "count": len(frames)},
-       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame"), "head_layer": head_layer, "neck_zone": neck_zone}
+       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame"), "head_layer": head_layer, "neck_zone": neck_zone, "cheeks": cheeks}
 json.dump(cfg, open(A / "config.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 print("書き出し:", A)

@@ -31,6 +31,10 @@
   uniform float hasHead;                                // 頭と首を別の層にする（tNeck：首の層の色＋頭の濃さ）
   uniform vec3 neckZone;                                // 首のまわり (cx, 上の y, 半幅)：首の層のここだけは動かさない
   uniform float alphaMode;       // 1 のとき背景を透明に（tMask＝下地の不透明さ）
+  uniform float bgMode; uniform vec3 bgColor; uniform float hasMask;   // 背景：0 元のまま、1 色でぬる、2 透明
+  uniform float eyeMidX;                                // 左右の目の境（ここより左は eyeA、右は eyeB のコマ）
+  uniform vec4 cheekL, cheekR; uniform float blush;     // 頬 (x, y, 半径) と照れ（0〜1）
+  uniform vec3 sweat; uniform vec2 anger;               // 汗 (強さ, 下がる量, 0)、怒りマーク (強さ, 大きさ)
   uniform float N;               // 絵の大きさ
   uniform vec2 outSize; uniform vec3 view;                // 書き出しの大きさ、(倍率, 絵の左上の x, y)
   uniform vec4 eyeRect; uniform float eyeCount, eyeA, eyeB, eyeMix;   // 目の範囲・コマ数・混ぜる 2 コマと割合
@@ -162,12 +166,11 @@
     if (pb.x >= eyeRect.x + 2.0 && pb.x < eyeRect.z - 2.0 && pb.y >= eyeRect.y + 2.0 && pb.y < eyeRect.w - 2.0) {   // 端の 2 画素は下地のまま（コマの端は下地と同じ。となりのコマを拾わない）
       float eh = eyeRect.w - eyeRect.y;
       vec2 e = pb - eyeRect.xy;
-      vec3 c0 = crEyes(vec2(e.x, e.y + eyeA * eh)).rgb;
-      vec3 c1 = crEyes(vec2(e.x, e.y + eyeB * eh)).rgb;
-      under = mix(c0, c1, eyeMix);
+      float fr = pb.x < eyeMidX ? eyeA : eyeB;                    // 左右の目で別のコマ（ウインク）
+      under = crEyes(vec2(e.x, e.y + fr * eh)).rgb;
     }
     // 視線：開いた目のときだけ、白目の上で黒目をずらす（まばたき・表情の間は正面）
-    if (hasIris > 0.5 && eyeA < 0.5 && eyeB < 0.5 && dot(gaze, gaze) > 0.0004 && pb.x >= iRect.x + 2.0 && pb.x < iRect.z - 2.0 && pb.y >= iRect.y + 2.0 && pb.y < iRect.w - 2.0) {
+    if (hasIris > 0.5 && (pb.x < eyeMidX ? eyeA : eyeB) < 0.5 && dot(gaze, gaze) > 0.0004 && pb.x >= iRect.x + 2.0 && pb.x < iRect.z - 2.0 && pb.y >= iRect.y + 2.0 && pb.y < iRect.w - 2.0) {
       vec2 iq = pb - iRect.xy;
       float m = texture(tEyeOpen, iq / vec2(textureSize(tEyeOpen, 0))).r;
       if (m > 0.0) {
@@ -191,6 +194,21 @@
       vec4 mp = mouthPaint(pb);
       under = mix(under, mp.rgb, mp.a * k);
     }
+    // 照れ：頬に桃色、強いときは斜めの照れ線
+    if (blush > 0.01) {
+      for (int k = 0; k < 2; k++) {
+        vec4 ck = k == 0 ? cheekL : cheekR;
+        vec2 dv = (pb - ck.xy) / max(ck.z, 1.0);
+        float g = exp(-1.6 * dot(dv * vec2(0.8, 1.25), dv * vec2(0.8, 1.25)));
+        under = mix(under, under * vec3(1.0, 0.74, 0.76), clamp(blush * g * 0.75, 0.0, 1.0));
+        if (blush > 0.4) {
+          vec2 r = vec2(dv.x * 0.8 + dv.y * 0.6, -dv.x * 0.6 + dv.y * 0.8);   // 斜めの線（3 本）
+          float ln = 0.0;
+          for (int j = -1; j <= 1; j++) ln = max(ln, (1.0 - smoothstep(0.035, 0.07, abs(r.x - float(j) * 0.32))) * (1.0 - smoothstep(0.32, 0.42, abs(r.y))));
+          under = mix(under, vec3(0.86, 0.38, 0.44), ln * clamp((blush - 0.4) * 1.8, 0.0, 0.85));
+        }
+      }
+    }
     if (hasHead > 0.5) {                                            // 首の層の上に頭の層を重ねる（あごの下から首が見える）
       vec2 pn = invNeck(pivot + rot(q - pivot, -tilt * headW(q) * (1.0 - 0.8 * neckStill(q))));
       float ha = texture(tNeck, pb / N).a;
@@ -200,14 +218,41 @@
     vec2 ph = invHair(qt);
     vec2 d = hairDisp(ph);
     vec4 hc = crHair(ph - d);
-    if (alphaMode > 0.5) {
+    vec3 col = mix(under, hc.rgb, hc.a); float al = 1.0;
+    if ((alphaMode > 0.5 || bgMode > 0.5) && hasMask > 0.5) {
       float ua = smp(tMask, pb).r;                                   // 下地の不透明さ（人物と奥の髪は 1、背景は 0）
-      float al = ua * (1.0 - hc.a) + hc.a;
+      al = ua * (1.0 - hc.a) + hc.a;
       vec3 pm = under * ua * (1.0 - hc.a) + hc.rgb * hc.a;           // 重ねた色（premultiplied）
-      o = vec4(al > 0.001 ? pm / al : vec3(0.0), al);
-    } else {
-      o = vec4(mix(under, hc.rgb, hc.a), 1.0);
+      col = al > 0.001 ? pm / al : vec3(0.0);
+      if (bgMode > 0.5 && bgMode < 1.5) { col = bgColor * (1.0 - al) + pm; al = 1.0; }
     }
+    // 漫符（頭と一緒に動く）：汗と怒りマーク
+    vec2 F = faceE.xy; float R = faceE.z;
+    if (sweat.x > 0.01) {                                           // 汗：上がとがって下が丸いしずく（こめかみの横、少しずつ下がる）
+      vec2 sp = (pb - (F + vec2(1.02 * R, -0.30 * faceE.w + sweat.y))) / (0.12 * R);
+      float r0 = 0.55; vec2 c0 = vec2(0.0, 0.45);
+      float dc = length(sp - c0) - r0;                                // 下の丸
+      float tip = -1.0;                                               // 上の先
+      float hw = r0 * clamp((sp.y - tip) / (c0.y - tip), 0.0, 1.0);   // 先から丸へ広がる幅
+      float dt = sp.y < c0.y ? max(abs(sp.x) - hw, tip - sp.y) : 1.0;
+      float dd = min(dc, dt);
+      float fill = 1.0 - smoothstep(-0.03, 0.03, dd), edge = (1.0 - smoothstep(0.03, 0.11, abs(dd))) * step(-0.25, dd);
+      float hl = 1.0 - smoothstep(0.07, 0.13, length((sp - vec2(-0.2, 0.35)) * vec2(1.0, 0.7)));
+      vec3 sc = mix(vec3(0.70, 0.86, 1.0), vec3(1.0), hl); sc = mix(sc, vec3(0.22, 0.42, 0.72), edge);
+      float sa = max(fill, edge) * sweat.x;
+      col = mix(col, sc, sa); al = max(al, sa);
+    }
+    if (anger.x > 0.01) {                                           // 怒りマーク：おでこの左上、外へ反った 4 本の弧
+      vec2 ap = (pb - (F + vec2(-0.70 * R, -0.80 * faceE.w))) / (0.24 * R * anger.y);
+      vec2 aq = abs(ap);
+      float ring = abs(length(aq - vec2(0.75)) - 0.55);
+      float inside = step(aq.x, 0.78) * step(aq.y, 0.78) * step(0.1, min(aq.x, aq.y));
+      float stroke = (1.0 - smoothstep(0.08, 0.14, ring)) * inside;
+      float outl = (1.0 - smoothstep(0.14, 0.2, ring)) * inside;
+      float aa = outl * anger.x;
+      col = mix(col, mix(vec3(1.0), vec3(0.88, 0.1, 0.16), stroke / max(outl, 1e-3)), aa); al = max(al, aa);
+    }
+    o = vec4(col, al);
   }`;
   const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s); return s; };
   const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
@@ -288,7 +333,7 @@
   function poseAt(t) {
     const hd = cfg.head || {};
     let yaw = 0.55 * wob(t, 6.3, 3.7, 2.3, 0.4), pitch = 0.35 * wob(t, 5.1, 2.9, 1.7, 1.9), roll = 0.12 * wob(t, 7.7, 4.1, 2.6, 2.8);
-    let brow = 0;
+    let brow = 0, blush = 0, sweat = 0, anger = 0;
     const talk = envAt(envL, t), nod = Math.max(-0.2, Math.min(0.6, envAt(envS, t) - talk));
     pitch += 0.9 * nod; brow -= 0.35 * Math.max(0, nod);                              // 強く言う所で少しうなずき、眉も少し上がる
     yaw *= 1 + 0.4 * talk;
@@ -297,13 +342,16 @@
       if (e.expr === 'smile') { pitch -= 0.35 * k; roll += 0.25 * k; brow -= 0.25 * k; }
       if (e.expr === 'jito') { yaw += 0.55 * k; pitch += 0.35 * k; brow += 0.5 * k; }
       if (e.expr === 'brow') { pitch -= 0.45 * k; brow -= 1.0 * k; }
+      if (e.expr === 'blush') blush = Math.max(blush, k * (e.amount ?? 0.8));
+      if (e.expr === 'sweat') sweat = Math.max(sweat, k);
+      if (e.expr === 'anger') { anger = Math.max(anger, k); brow += 0.6 * k; }
     }
     const breath = 0.5 + 0.5 * Math.sin(2 * Math.PI * t / 3.6);
     // 視線：頭と逆に少し動いて正面を見続ける＋ときどき移す。ジト目は横目
     let [gx, gy] = saccades.length ? saccadeAt(t) : [0, 0];
     gx = gx * 0.6 - yaw * 0.5; gy = gy * 0.6 - pitch * 0.4;
     for (const e of events) { const k = exprK(e, t); if (k && e.expr === 'jito') { gx = gx * (1 - k) + 1.0 * k; gy *= 1 - k; } if (k && e.expr === 'smile') { gx *= 1 - k; gy *= 1 - k; } }
-    return { yaw: yaw * MOTION, pitch: pitch * MOTION, roll: roll * MOTION, brow, breath: breath * MOTION, gaze: [gx * MOTION, gy * MOTION] };
+    return { yaw: yaw * MOTION, pitch: pitch * MOTION, roll: roll * MOTION, brow, breath: breath * MOTION, gaze: [gx * MOTION, gy * MOTION], blush, sweat, anger };
   }
   window.render = function (t) {
     if (window.TP && window.TP.manual) return renderManual(t);
@@ -342,10 +390,17 @@
       if (ov.brow !== undefined) browDy = (hd.brow_px ?? N * 0.012) * ov.brow;
     }
     const body = hd.body ? (hd.body.deg ?? 0.5) * Math.PI / 180 * wob(t, 8.3, 5.1, 3.3, 0.9) * MOTION * (ov && ov.still ? 0 : 1) : 0;
-    draw(t, fa, fb, fr, L.open, L.shape, ov && ov.still ? 0 : tilt, th, turn, browDy, breath, gaze, body);
+    draw(t, fa, fb, fr, L.open, L.shape, ov && ov.still ? 0 : tilt, th, turn, browDy, breath, gaze, body, { blush: P.blush, sweat: P.sweat, anger: P.anger });
   };
-  function draw(t, fa, fb, fr, open, shape, tilt, th, turn, browDy, breath, gaze, body = 0) {
+  function draw(t, fa, fb, fr, open, shape, tilt, th, turn, browDy, breath, gaze, body = 0, fx = {}) {
     gl.uniform1f(U('bodyRoll'), body);
+    // 漫符と背景（fx：blush 0〜1、sweat 0〜1、anger 0〜1、bg {mode:0 元/1 色/2 透明, color:[r,g,b] 0〜1}）
+    const hd = cfg.head || {}, ry = hd.face ? hd.face[3] : cfg.size * 0.25;
+    gl.uniform1f(U('blush'), fx.blush || 0);
+    gl.uniform3fv(U('sweat'), [fx.sweat || 0, ((t * 0.22) % 1) * 0.22 * ry, 0]);
+    gl.uniform2fv(U('anger'), [fx.anger || 0, 1 + 0.1 * Math.sin(t * 9)]);
+    const bg = fx.bg || (window.TP && window.TP.bg) || { mode: 0 };
+    gl.uniform1f(U('bgMode'), bg.mode || 0); gl.uniform3fv(U('bgColor'), bg.color || [0, 1, 0]);
     gl.viewport(0, 0, W, H);
     if (ALPHA) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     gl.uniform1f(U('tilt'), tilt);
@@ -364,7 +419,9 @@
   //   live:   {open, shape}（マイクや音声ファイルから。口の開きは params と大きい方）
   const TP = window.TP = {
     manual: false,
-    params: { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, expr: '', exprK: 0, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, shape: [1, 0, 0, 0, 0], hair: 1 },
+    params: { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, eyeOpenL: 1, eyeOpenR: 1, winkSmile: true, expr: '', exprK: 0, gazeX: 0, gazeY: 0, brow: 0,
+              mouthOpen: 0, shape: [1, 0, 0, 0, 0], hair: 1, blush: 0, sweat: 0, anger: 0 },
+    bg: { mode: 0, color: [0, 1, 0] },                                       // 背景：0 元のまま、1 色でぬる、2 透明
     hasBody: () => !!(cfg && cfg.head && cfg.head.body),
     auto: { blink: true, idle: true, breath: true, saccade: true, sway: true },
     live: null,
@@ -374,14 +431,17 @@
   function renderManual(t) {
     const p = TP.params, a = TP.auto, hd = cfg.head || {}, N = cfg.size;
     const tt = t % 600;
-    // 目：表情があればそのコマへ、なければ「開き」と自動まばたきの閉じた方
-    let fa = 0;
+    // 目：表情があればそのコマへ、なければ「開き」と自動まばたきの閉じた方。左右別（ウインク）
     const path = p.expr && cfg.eye.expr[p.expr];
-    if (path && p.exprK > 0.02) fa = path[Math.min(path.length - 1, Math.round(p.exprK * (path.length - 1)))];
-    else {
-      const c = Math.max(1 - p.eyeOpen, a.blink ? blinkAt(tt) : 0); const lid = cfg.eye.blink_lid;
-      for (let i = 1; i < lid.length; i++) if (Math.abs(lid[i] - c) < Math.abs(lid[fa] - c)) fa = i;
-    }
+    const lid = cfg.eye.blink_lid, bk = a.blink ? blinkAt(tt) : 0;
+    const frameFor = (open1) => {
+      if (path && p.exprK > 0.02) return path[Math.min(path.length - 1, Math.round(p.exprK * (path.length - 1)))];
+      const c = Math.max(1 - p.eyeOpen * open1, bk); let f = 0;
+      if (p.winkSmile !== false && open1 < 0.5 && cfg.eye.expr.smile) { const sp = cfg.eye.expr.smile; return sp[Math.min(sp.length - 1, Math.round((1 - open1 * 2) * (sp.length - 1)))]; }
+      for (let i = 1; i < lid.length; i++) if (Math.abs(lid[i] - c) < Math.abs(lid[f] - c)) f = i;
+      return f;
+    };
+    const fa = frameFor(p.eyeOpenL ?? 1), fb = frameFor(p.eyeOpenR ?? 1);
     // 口：手で決めた開きと、声（live）の大きい方
     const lv = TP.live; let open = p.mouthOpen, shape = p.shape;
     if (lv && lv.open > open) { open = lv.open; shape = lv.shape; }
@@ -410,7 +470,7 @@
     const breath = a.breath ? -(hd.breath_px ?? N * 0.0016) * (0.5 + 0.5 * Math.sin(2 * Math.PI * tt / 3.6)) : 0;
     const gaze = [(hd.gaze_px ?? N * 0.006) * gx, (hd.gaze_px ?? N * 0.006) * 0.6 * gy];
     const body = hd.body ? (hd.body.deg ?? 0.5) * Math.PI / 180 * (p.body + idle * wob(tt, 8.3, 5.1, 3.3, 0.9)) : 0;
-    draw(t, fa, fa, 0, open, shape, tilt, th, turn, browDy, breath, gaze, body);
+    draw(t, fa, fb, 0, open, shape, tilt, th, turn, browDy, breath, gaze, body, { blush: p.blush, sweat: p.sweat, anger: p.anger, bg: TP.bg });
   }
 
   (async () => {
@@ -433,7 +493,10 @@
     const units = ['tOrig', 'tBase', 'tHair', 'tEyes', 'tMouth', 'tW0', 'tW1', 'tW2', 'tS0', 'tS1', 'tS2', 'tMask', 'tBrow', 'tBrowSkin', 'tIris', 'tSclera', 'tEyeOpen', 'tNeck'];
     ims.forEach((im, i) => { if (im) { tex(im, i); gl.uniform1i(U(units[i]), i); } });
     gl.uniform1f(U('N'), N);
-    gl.uniform1f(U('alphaMode'), ALPHA && ims[11] ? 1 : 0);
+    gl.uniform1f(U('alphaMode'), ALPHA && ims[11] ? 1 : 0); gl.uniform1f(U('hasMask'), ims[11] ? 1 : 0);
+    gl.uniform1f(U('eyeMidX'), cfg.head && cfg.head.nose ? cfg.head.nose[0] : (cfg.eye.rect[0] + cfg.eye.rect[2]) / 2);
+    const ch = cfg.cheeks || [[0, 0, 1], [0, 0, 1]];
+    gl.uniform4fv(U('cheekL'), [...ch[0], 0]); gl.uniform4fv(U('cheekR'), [...ch[1], 0]);
     gl.uniform4fv(U('eyeRect'), cfg.eye.rect); gl.uniform1f(U('eyeCount'), cfg.eye.count);
     if (cfg.mouth) {
       gl.uniform4fv(U('mRect'), cfg.mouth.rect); gl.uniform4fv(U('mGeo'), [cfg.mouth.cx, cfg.mouth.cy, cfg.mouth.k, cfg.mouth.halfw]);
