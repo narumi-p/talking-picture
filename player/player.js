@@ -8,7 +8,7 @@
   const qs = new URLSearchParams(location.search);
   const cv = document.getElementById('gl');
   const gl = cv.getContext('webgl2', { preserveDrawingBuffer: true, premultipliedAlpha: false });
-  const A = (qs.get('assets') || 'assets') + '/';
+  const A = (qs.get('assets') || window.TP_ASSETS || 'assets') + '/';   // TP_ASSETS：埋め込み先で層のフォルダを決めるとき
   const ALPHA = qs.get('alpha') === '1';
   const MOTION = qs.has('motion') ? +qs.get('motion') : 1;
   if (ALPHA) cv.style.background = 'transparent';
@@ -41,6 +41,8 @@
   uniform vec4 faceE, hairE;                            // 顔の楕円・髪の楕円 (cx, cy, rx, ry)
   uniform vec2 turn;                                    // 顔の向き：奥行き 1 の所のずれ（画素）
   uniform float hairFront, backDepth, breath;           // 前髪の手前さ、後ろの奥さ、呼吸（肩の上下、画素）
+  uniform float soft;                                   // 首・肩のなじませ幅の倍率（絵の中の顔の大きさに合わせる）
+  uniform vec2 bodyPivot; uniform float bodyRoll;       // 体の角度：足元を軸に体ごと少し傾ける（全身の絵）
   vec2 rot(vec2 v, float a){ float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }
   #define smp(t, q) texture(t, (q) / N)
   // Catmull-Rom（9 回の読み出し）。止まっているとき（画素の中心）は元の画素そのもの、動くときもぼけにくい
@@ -78,7 +80,7 @@
   // 奥行き：顔の楕円の中ほど手前（なめらかに 0 へ）。後ろは少し奥（背景は無地なので動いても見えない）
   float ell(vec2 p, vec4 e){ vec2 d = (p - e.xy) / e.zw; return 1.0 - dot(d, d); }
   float zFace(vec2 p){ float f = clamp((ell(p, faceE) + 0.3) / 1.3, 0.0, 1.0); return f * f * (3.0 - 2.0 * f); }
-  float headW(vec2 p){ return smoothstep(neckY + 60.0, neckY - 80.0, p.y); }
+  float headW(vec2 p){ return smoothstep(neckY + 60.0 * soft, neckY - 80.0 * soft, p.y); }
   vec2 dBase(vec2 p){
     float z = zFace(p);
     float back = backDepth * (1.0 - z) * smoothstep(-0.2, 0.5, ell(p, hairE));
@@ -130,8 +132,10 @@
   void main(){
     vec2 fp = vec2(uv.x, 1.0 - uv.y) * outSize;                     // 書き出しの画素
     vec2 q = (fp - view.yz) / view.x;                               // 絵の画素
-    // 呼吸：肩から下を少し上下（頭は動かさない）
-    q.y += breath * smoothstep(neckY - 40.0, neckY + 160.0, q.y);
+    // 体の角度：足元を軸に体ごと傾ける
+    if (bodyRoll != 0.0) q = bodyPivot + rot(q - bodyPivot, -bodyRoll);
+    // 呼吸：肩から胸を少し上下（頭と足は動かさない）
+    q.y += breath * smoothstep(neckY - 40.0 * soft, neckY + 160.0 * soft, q.y) * (1.0 - smoothstep(neckY + 420.0 * soft, neckY + 900.0 * soft, q.y));
     // 頭の傾き（首から上だけ）
     vec2 qt = pivot + rot(q - pivot, -tilt * headW(q));
     vec2 pb = invBase(qt);                                          // 顔・目・口・眉の位置
@@ -314,9 +318,11 @@
       if (ov.pitch !== undefined) turn[1] = (hd.pitch_px ?? N * 0.008) * ov.pitch;
       if (ov.brow !== undefined) browDy = (hd.brow_px ?? N * 0.012) * ov.brow;
     }
-    draw(t, fa, fb, fr, L.open, L.shape, ov && ov.still ? 0 : tilt, th, turn, browDy, breath, gaze);
+    const body = hd.body ? (hd.body.deg ?? 0.5) * Math.PI / 180 * wob(t, 8.3, 5.1, 3.3, 0.9) * MOTION * (ov && ov.still ? 0 : 1) : 0;
+    draw(t, fa, fb, fr, L.open, L.shape, ov && ov.still ? 0 : tilt, th, turn, browDy, breath, gaze, body);
   };
-  function draw(t, fa, fb, fr, open, shape, tilt, th, turn, browDy, breath, gaze) {
+  function draw(t, fa, fb, fr, open, shape, tilt, th, turn, browDy, breath, gaze, body = 0) {
+    gl.uniform1f(U('bodyRoll'), body);
     gl.viewport(0, 0, W, H);
     if (ALPHA) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     gl.uniform1f(U('tilt'), tilt);
@@ -329,13 +335,14 @@
   }
 
   // ── 手で動かす（studio.html など）：window.TP.manual = true にすると、TP.params の値で描く ──
-  //   params: yaw/pitch/roll（顔の向き、-1.5〜1.5）、eyeOpen（1 開 〜 0 閉）、expr（'' / 'smile' / 'jito'）と exprK（0〜1）、
+  //   params: yaw/pitch/roll（顔の向き、-1.5〜1.5）、body（体の角度、全身の絵のとき）、eyeOpen（1 開 〜 0 閉）、expr（'' / 'smile' / 'jito'）と exprK（0〜1）、
   //           gazeX/gazeY（視線 -1〜1）、brow（眉 -1 下 〜 1 上）、mouthOpen（0〜1）、shape（[あ,い,う,え,お]）、hair（髪の揺れの倍率）
   //   auto:   blink（自動まばたき）、idle（ゆっくり首を動かす）、breath（呼吸）、saccade（視線をときどき移す）、sway（髪の揺れ）
   //   live:   {open, shape}（マイクや音声ファイルから。口の開きは params と大きい方）
   const TP = window.TP = {
     manual: false,
-    params: { yaw: 0, pitch: 0, roll: 0, eyeOpen: 1, expr: '', exprK: 0, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, shape: [1, 0, 0, 0, 0], hair: 1 },
+    params: { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, expr: '', exprK: 0, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, shape: [1, 0, 0, 0, 0], hair: 1 },
+    hasBody: () => !!(cfg && cfg.head && cfg.head.body),
     auto: { blink: true, idle: true, breath: true, saccade: true, sway: true },
     live: null,
     render: (t) => window.render(t),
@@ -379,16 +386,25 @@
     const browDy = -(hd.brow_px ?? N * 0.012) * (p.brow + 0.4 * nod);
     const breath = a.breath ? -(hd.breath_px ?? N * 0.0016) * (0.5 + 0.5 * Math.sin(2 * Math.PI * tt / 3.6)) : 0;
     const gaze = [(hd.gaze_px ?? N * 0.006) * gx, (hd.gaze_px ?? N * 0.006) * 0.6 * gy];
-    draw(t, fa, fa, 0, open, shape, tilt, th, turn, browDy, breath, gaze);
+    const body = hd.body ? (hd.body.deg ?? 0.5) * Math.PI / 180 * (p.body + idle * wob(tt, 8.3, 5.1, 3.3, 0.9)) : 0;
+    draw(t, fa, fa, 0, open, shape, tilt, th, turn, browDy, breath, gaze, body);
   }
 
   (async () => {
     cfg = await (await fetch(A + 'config.json?v=' + Date.now())).json();
     const N = cfg.size;
-    W = +(qs.get('w') || window.TP_SIZE || N); H = +(qs.get('h') || window.TP_SIZE || N); cv.width = W; cv.height = H;   // TP_SIZE：埋め込み先で大きさを決めるとき
-    // 絵の置き方：横幅に合わせ、縦長のときは下に寄せる（上は背景の色が続く）
-    const sc = Math.min(W, H) / N;
-    gl.uniform2fv(U('outSize'), [W, H]); gl.uniform3fv(U('view'), [sc, (W - N * sc) / 2, H - N * sc]);
+    // 大きさ：?w=&h=、または TP_SIZE（長い辺。埋め込み先で決めるとき）、無ければ絵（frame）の大きさのまま
+    const FW = cfg.frame ? cfg.frame[2] : N, FH = cfg.frame ? cfg.frame[3] : N;
+    const ts = window.TP_SIZE ? window.TP_SIZE / Math.max(FW, FH) : 1;
+    W = +(qs.get('w') || Math.round(FW * ts)); H = +(qs.get('h') || Math.round(FH * ts)); cv.width = W; cv.height = H;
+    // 絵の置き方：frame（絵の中の見せる範囲）があればそこを収める。無ければ横幅に合わせ、縦長のときは下に寄せる
+    if (cfg.frame) {
+      const [fx, fy, fw, fh] = cfg.frame; const sc = Math.min(W / fw, H / fh);
+      gl.uniform2fv(U('outSize'), [W, H]); gl.uniform3fv(U('view'), [sc, (W - fw * sc) / 2 - fx * sc, (H - fh * sc) / 2 - fy * sc]);
+    } else {
+      const sc = Math.min(W, H) / N;
+      gl.uniform2fv(U('outSize'), [W, H]); gl.uniform3fv(U('view'), [sc, (W - N * sc) / 2, H - N * sc]);
+    }
     const names = ['original', 'base', 'hair', 'eyes', 'mouthskin', 'sw0', 'sw1', 'sw2', 'ss0', 'ss1', 'ss2', 'mask', 'brows', 'browskin', 'iris', 'sclera', 'eyeopen'];
     const ims = await Promise.all(names.map((n) => loadImg(n + '.png').catch(() => null)));
     const units = ['tOrig', 'tBase', 'tHair', 'tEyes', 'tMouth', 'tW0', 'tW1', 'tW2', 'tS0', 'tS1', 'tS2', 'tMask', 'tBrow', 'tBrowSkin', 'tIris', 'tSclera', 'tEyeOpen'];
@@ -407,8 +423,10 @@
     gl.uniform4fv(U('faceE'), hd.face || [N / 2, N * 0.5, N * 0.24, N * 0.27]);
     gl.uniform4fv(U('hairE'), hd.hair || [N / 2, N * 0.45, N * 0.45, N * 0.48]);
     gl.uniform1f(U('hairFront'), hd.hair_front ?? 0.3); gl.uniform1f(U('backDepth'), hd.back ?? 0.35);
+    gl.uniform1f(U('soft'), hd.soft ?? 1.0);
+    gl.uniform2fv(U('bodyPivot'), (hd.body && hd.body.pivot) || [N / 2, N]);
     const lp = qs.get('lips') || (qs.has('export') ? '' : A + 'lips.json');
-    if (lp) lips = await (await fetch(lp + '?v=' + Date.now())).json();
+    if (lp) { try { const r = await fetch(lp + '?v=' + Date.now()); lips = r.ok ? await r.json() : null; } catch (e) { lips = null; } }
     buildEnv();
     const tl = qs.get('timeline') || (qs.has('export') ? '' : A + 'timeline.json');
     if (tl) { try { const T = await (await fetch(tl + '?v=' + Date.now())).json(); events = T.events || []; } catch (e) { events = []; } }

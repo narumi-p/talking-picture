@@ -255,11 +255,16 @@ nm = rd("no_mouth.png")
 if nm is not None:
     mx_lo, my_lo, mx_hi, my_hi = C["mouth_region"]
     d = np.abs(nm - bald).max(2); m = cv2.morphologyEx((d > 14).astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    lab, n = ndi.label(m); ids = []
-    for i in range(n):                                                           # 口の範囲の中のかたまりを全部（線が細く途切れていても 1 つの口に）
-        yy_, xx_ = np.nonzero(lab == i + 1)
-        if len(yy_) < 30: continue
-        if mx_lo < xx_.mean() < mx_hi and my_lo < yy_.mean() < my_hi: ids.append(i + 1)
+    def _mouth_ids(m, min_px):
+        lab, n = ndi.label(m); ids = []
+        for i in range(n):                                                       # 口の範囲の中のかたまりを全部（線が細く途切れていても 1 つの口に）
+            yy_, xx_ = np.nonzero(lab == i + 1)
+            if len(yy_) < min_px: continue
+            if mx_lo < xx_.mean() < mx_hi and my_lo < yy_.mean() < my_hi: ids.append(i + 1)
+        return lab, ids
+    lab, ids = _mouth_ids(m, 30)
+    if not ids:                                                                  # 小さい絵（全身など）は口の線が細く、ノイズ除去で消えるので、そのままで探す
+        lab, ids = _mouth_ids((d > 14).astype(np.uint8), 10)
     best = (0, -1) if ids else None
     if ids: lab = np.where(np.isin(lab, ids), -1, lab)
     if best:
@@ -274,8 +279,8 @@ if nm is not None:
             c, k = np.linalg.lstsq(Aa, sy.astype(np.float64), rcond=None)[0]
         else:
             c, k = (my0 + my1) / 2, 0.0
-        pad = 34
-        rx0, rx1 = int(max(0, mx0 - pad)), int(min(N, mx1 + pad)); ry0, ry1 = int(max(0, my0 - pad)), int(min(N, my1 + pad + 20))
+        pad = max(8, int(round((mx1 - mx0) * 0.3)))                              # 口が開いたときに描く範囲の余白（口の幅に合わせる。目に掛からない）
+        rx0, rx1 = int(max(0, mx0 - pad)), int(min(N, mx1 + pad)); ry0, ry1 = int(max(0, my0 - pad)), int(min(N, my1 + pad + pad * 0.6))
         mm = cv2.GaussianBlur(cv2.dilate((d > 6).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(np.float32), (0, 0), 2)
         skinm = base * (1 - mm[..., None]) + nm * mm[..., None]
         cv2.imwrite(str(A / "mouthskin.png"), skinm[ry0:ry1, rx0:rx1].astype(np.uint8))
@@ -346,6 +351,6 @@ for k in range(3):   # 9 本を RGB×3 枚に詰める（重みと根元から�
     cv2.imwrite(str(A / f"ss{k}.png"), np.clip(np.dstack([S[3 * k + 2], S[3 * k + 1], S[3 * k]]) * 255, 0, 255).astype(np.uint8))
 
 cfg = {"size": N, "eye": {"rect": [int(ex0), int(ey0), int(ex1), int(ey1)], "blink_frames": blink_n, "blink_lid": blink_lid, "keys": len(KF), "sub": SUB, "expr": expr, "count": len(frames)},
-       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head")}
+       "mouth": mouth, "brow": brow, "iris": iris, "strands": STRANDS, "pivot": C["pivot"], "neck_y": C["neck_y"], "head": C.get("head"), "frame": C.get("frame")}
 json.dump(cfg, open(A / "config.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 print("書き出し:", A)

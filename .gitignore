@@ -14,3 +14,8 @@ demo/*_timeline.json
 demo/*_subs.json
 # 音声合成の声（tools/tts_voice.py が取ってくる）
 voices/
+# 全身など 2 枚目の絵の作業フォルダ（設定の例だけ入れる）
+gen_*/*.png
+gen_*/config.json
+gen_*/log_*.txt
+player/assets_*/

@@ -42,6 +42,8 @@ S = src.astype(np.float32)
 LUMA = np.array([0.114, 0.587, 0.299], np.float32)
 Y = S @ LUMA
 bg = np.array(cfg.get("background_rgb", [252, 251, 251])[::-1], np.float32)
+ES = float(L.get("eye_scale", 1.0))                                                # 目の大きさの倍率（目の幅 150px ほどで 1。全身の絵などで目が小さいときは 0.3 など）
+px = lambda v, lo=1: max(lo, int(round(v * ES)))                                  # 目まわりの画素数を倍率で
 
 
 def poly_mask(pts):
@@ -100,24 +102,25 @@ def eye_geometry(spec):
     xs_t, ys_t, th, xs_b, ys_b = [], [], [], [], []
     for x in range(xa, xb + 1):
         c = Y[y0:y1, x]
-        run = np.convolve((c < 110).astype(int), np.ones(4, int), "valid") == 4    # 4 画素続く暗い所（細い髪や二重の線を避ける）
+        RUN = px(4, 2)
+        run = np.convolve((c < 110).astype(int), np.ones(RUN, int), "valid") == RUN  # 何画素か続く暗い所（細い髪や二重の線を避ける）
         idx = np.nonzero(run)[0]
         if not len(idx): continue
         t = idx[0]; xs_t.append(x); ys_t.append(y0 + t)
         k = t
         while k < len(c) and c[k] < 75: k += 1                                     # まつ毛の帯（真っ黒に近い所）
         th.append(k - t)
-        seg = c[t + 20:t + 100]
+        seg = c[t + px(20, 4):t + px(100, 20)]
         below = np.nonzero(seg < 175)[0]
-        if len(below): xs_b.append(x); ys_b.append(y0 + t + 20 + below[-1])
+        if len(below): xs_b.append(x); ys_b.append(y0 + t + px(20, 4) + below[-1])
     xa_ = np.arange(N, dtype=np.float64)
-    ys_t = ndi.median_filter(np.asarray(ys_t, np.float64), 9, mode="nearest")
-    ys_t = ndi.gaussian_filter1d(ys_t, 2.0, mode="nearest")
+    ys_t = ndi.median_filter(np.asarray(ys_t, np.float64), px(9, 3), mode="nearest")
+    ys_t = ndi.gaussian_filter1d(ys_t, max(0.7, 2.0 * ES), mode="nearest")
     top = np.interp(xa_, xs_t, ys_t)                                               # 範囲の外は端の値のまま
     inner = (np.asarray(xs_b) > xa + 0.15 * (xb - xa)) & (np.asarray(xs_b) < xb - 0.15 * (xb - xa))
     pb, _ = robust_fit(np.asarray(xs_b)[inner], np.asarray(ys_b)[inner], 2)
     bot = np.polyval(pb, xa_)
-    T = float(np.clip(np.percentile(th, 60), 8, 30))
+    T = float(np.clip(np.percentile(th, 60), 8 * ES, 30 * ES))
     ramp = float(spec.get("ramp", 22))
     w = np.clip((xa_ - xa) / ramp, 0, 1) * np.clip((xb - xa_) / ramp, 0, 1)
     w = w * w * (3 - 2 * w)                                                        # 目の端で動きを 0 に
@@ -134,10 +137,10 @@ def clean_skin(geo):
     x0, y0, x1, y1 = geo["box"]
     reg = np.clip(S[y0:y1, x0:x1], 0, 255).astype(np.uint8)
     yv = reg.astype(np.float32) @ LUMA
-    loc = cv2.GaussianBlur(yv, (0, 0), 5)
+    loc = cv2.GaussianBlur(yv, (0, 0), max(1.5, 5 * ES))
     m = ((loc - yv) > 5) | (yv < 205)
     rr = np.arange(y0, y1)[:, None]; cc = np.arange(x0, x1)[None, :]
-    m |= (rr >= geo["top"][cc] - 7) & (rr <= geo["bot"][cc] + 4)                   # 目そのもの（帯〜下まつ毛）も消す
+    m |= (rr >= geo["top"][cc] - px(7, 2)) & (rr <= geo["bot"][cc] + px(4, 1))     # 目そのもの（帯〜下まつ毛）も消す
     m = cv2.dilate(m.astype(np.uint8), np.ones((5, 5), np.uint8))
     out = cv2.inpaint(reg, m, 9, cv2.INPAINT_TELEA).astype(np.float32)
     out = cv2.GaussianBlur(out, (0, 0), 3)
@@ -161,9 +164,9 @@ def lash_shadow(geo):
     col = np.zeros((N, 3), np.float32); ok = np.zeros(N, np.float32)
     for x in range(x0, x1):
         t = int(round(geo["top"][x]))
-        px = S[max(0, t - 6):t, x]; yv = px @ LUMA
-        px = px[yv > 150]
-        if len(px): col[x] = np.median(px, axis=0); ok[x] = 1
+        pp = S[max(0, t - px(6, 2)):t, x]; yv = pp @ LUMA
+        pp = pp[yv > 150]
+        if len(pp): col[x] = np.median(pp, axis=0); ok[x] = 1
     num = cv2.GaussianBlur((col * ok[:, None])[None], (0, 0), 5)[0]
     den = cv2.GaussianBlur(ok[None], (0, 0), 5)[0]
     return num / np.maximum(den, 1e-3)[:, None]
@@ -177,10 +180,10 @@ def render_eye(img, geo, line, fill_below=False, thin=0.0, shade=0.06):
     """line(x)＝まつ毛の帯の新しい中心の y。帯（上に跳ねた毛＋まつ毛）を元の画素のまま下ろし、上の空いた所を肌に。
     fill_below＝帯の下から下まぶたまでも肌にする（閉じた目・笑顔）。thin＝帯を薄くする割合（閉じた目は線が細い）"""
     x0, y0, x1, y1 = geo["box"]
-    pad = 7.0
+    pad = max(2.0, 7.0 * ES)
     k = 1.0 - thin
     T0 = geo["T"] + pad
-    up = lid_skin(geo, -pad - 16, geo["top"]); up0 = lid_skin(geo, -pad - 1, geo["top"]); dn = lid_skin(geo, 6, geo["bot"])
+    up = lid_skin(geo, -pad - px(16, 3), geo["top"]); up0 = lid_skin(geo, -pad - 1, geo["top"]); dn = lid_skin(geo, px(6, 2), geo["bot"])
     sh = lash_shadow(geo)
     out = img.copy()
     for x in range(x0, x1):
@@ -195,7 +198,7 @@ def render_eye(img, geo, line, fill_below=False, thin=0.0, shade=0.06):
             if y < 0 or y >= N: continue
             if y < nb0:                                                             # まぶた：帯に近いほど少しだけ影
                 w = np.clip((y - ys) / max(d, 1.0), 0, 1)
-                t0 = np.clip((y - ys) / 4.0, 0, 1)                                      # 上端は元の色から肌の色へなじませる
+                t0 = np.clip((y - ys) / max(1.5, 4.0 * ES), 0, 1)                                      # 上端は元の色から肌の色へなじませる
                 c = up0[x] * (1 - t0) + up[x] * t0
                 k2 = 0.45 * w ** 1.2
                 c = c * (1 - k2) + (sh[x] * 0.5 + dn[x] * 0.5) * k2                    # 下の方は少し赤み（目の下の肌の色）を足す
@@ -210,9 +213,9 @@ def render_eye(img, geo, line, fill_below=False, thin=0.0, shade=0.06):
                     w = nb0 + 1 - y; c = c * (1 - w) + up[x] * (1 - shade) * w
             else:
                 if not fill_below: break
-                lim = geo["bot"][x] + 7
+                lim = geo["bot"][x] + px(7, 2)
                 if y > lim: break
-                w = np.clip((y - nb1 + 1) / 2.0, 0, 1) * np.clip((lim - y) / 3.0, 0, 1) * ww
+                w = np.clip((y - nb1 + 1) / max(1.0, 2.0 * ES), 0, 1) * np.clip((lim - y) / max(1.0, 3.0 * ES), 0, 1) * ww
                 c = out[y, x] * (1 - w) + dn[x] * w
             out[y, x] = c
     return out
@@ -260,8 +263,9 @@ def remove_mouth(img):
     reg = img[y0:y1, x0:x1].astype(np.float32); y = reg @ LUMA
     loc = cv2.GaussianBlur(y, (0, 0), 7)
     m = ((loc - y) > 8).astype(np.uint8)
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
-    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+    if ES >= 0.6: m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))   # 小さい絵では口の線が細いので削らない
+    k = px(7, 3) | 1
+    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     full = np.zeros((N, N), np.uint8); full[y0:y1, x0:x1] = m
     out = cv2.inpaint(np.clip(img, 0, 255).astype(np.uint8), full, 6, cv2.INPAINT_TELEA).astype(np.float32)
     # 埋めた所は少しぼかして、ムラを消す
@@ -302,15 +306,16 @@ def iris_layers(base_img):
             ya = int(np.ceil(geo["top"][x] + geo["T"] * 0.8)); yb = int(np.floor(geo["bot"][x] - 2))
             if yb > ya: op[ya:yb, x] = 1
         cand = (op.astype(bool) & (((r - g) > 45) | (Y < 150))).astype(np.uint8)
-        cand = cv2.erode(cand, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))  # 細いつながり（目じりの赤み・影）を切る
+        K7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (px(7, 3) | 1, px(7, 3) | 1))
+        cand = cv2.erode(cand, K7)                                                     # 細いつながり（目じりの赤み・影）を切る
         lab, n = ndi.label(cand)
         if n == 0: continue
         sizes = ndi.sum(cand, lab, range(1, n + 1)); main = lab == 1 + int(np.argmax(sizes))
-        main = cv2.dilate(main.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 0
+        main = cv2.dilate(main.astype(np.uint8), K7) > 0
         ys_, xs_ = np.nonzero(main & op.astype(bool))
         if len(xs_) < 50: continue
         ex0, ex1 = np.percentile(xs_, [0.5, 99.5]); ey1 = np.percentile(ys_, 99.5)
-        cx = (ex0 + ex1) / 2; rx = (ex1 - ex0) / 2 + 2; ry = rx * float(spec.get("iris_aspect", 1.15))
+        cx = (ex0 + ex1) / 2; rx = (ex1 - ex0) / 2 + px(2, 0); ry = rx * float(spec.get("iris_aspect", 1.15))
         cy = ey1 + 1 - ry                                                             # 下の端に合わせる（上はまぶたに隠れている）
         d = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2)
         el = np.clip((1.0 - d) * rx / 1.2 + 0.5, 0, 1)                                # ふち 1 画素ぶんなめらかに
@@ -321,8 +326,8 @@ def iris_layers(base_img):
         rows = {}
         y_lo, y_hi = int(cy - ry) - 2, int(cy + ry) + 3
         for y in range(max(0, y_lo), min(N, y_hi)):
-            xl = [x for x in range(int(cx - rx) - 1, int(cx - rx) - 40, -1) if 0 <= x < N and sclera[y, x]][:4]
-            xr = [x for x in range(int(cx + rx) + 1, int(cx + rx) + 40) if 0 <= x < N and sclera[y, x]][:4]
+            xl = [x for x in range(int(cx - rx) - 1, int(cx - rx) - px(40, 8), -1) if 0 <= x < N and sclera[y, x]][:4]
+            xr = [x for x in range(int(cx + rx) + 1, int(cx + rx) + px(40, 8)) if 0 <= x < N and sclera[y, x]][:4]
             if xl or xr:
                 cl = np.mean([S[y, x] for x in xl], 0) if xl else None; cr = np.mean([S[y, x] for x in xr], 0) if xr else None
                 rows[y] = (cl if cl is not None else cr, cr if cr is not None else cl)

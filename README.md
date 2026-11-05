@@ -93,6 +93,13 @@ python tools/build_layers.py --gen gen --out player/assets
 
 `config.local.example.json` は、胸から上・ショートボブ・紺のジャージの絵（なるみ）に合わせた値です。
 
+**全身の絵**は `gen_full/config.local.example.json` が例です（1024×1536 を左右に背景をのばして 1536×1536 にした絵）。顔が小さいので、`local.eye_scale`（目の幅 150px ほどで 1。全身では 0.27）で目まわりの画素数を縮め、`frame`（見せる範囲 [x, y, 幅, 高さ]）で元の大きさのまま書き出し、`head.soft`（首・肩のなじませ幅）と `head.body`（体の角度の軸 `pivot` と大きさ `deg`）を足します。
+
+```bash
+python tools/make_variants_local.py --gen gen_full && python tools/build_layers.py --gen gen_full --out player/assets_full
+python tools/make_video.py demo/narumi.wav out/full.mp4 --assets assets_full --timeline demo/narumi_timeline.json --subs demo/narumi_subs.json
+```
+
 ### 3. 層（レイヤー）を作る
 
 ```bash
@@ -132,6 +139,7 @@ python tools/serve.py        # → http://127.0.0.1:8765/studio.html
 Live2D のパラメーター盤のように、角度 X/Y/Z・目の開き・目玉 X/Y・眉・口の開きと形（あいうえお）・髪の揺れをつまみで動かせます。
 
 - 表情ボタン（通常・笑顔・ジト目・驚き・目を閉じる）、絵をドラッグして顔の向き、「マウスを見る」で顔と目がカーソルを追う
+- 「バストアップ／全身」で絵を切り替え（`studio.html#full` で `player/assets_full`）。全身では「体の角度」も動かせる
 - 声で口パク：サンプルの声（`player/assets/voice.wav`）・音声ファイル・マイク（声の大きさ＝口の開き、ひびき＝あいうえお）
 - 自動の動き（まばたき・首のゆれ・呼吸・視線・髪のゆれ）の入り切り、画像の保存と録画（声つき webm）
 - 外から動かすときは `window.TP`（`TP.manual = true` にして `TP.params` を変え、`TP.render(t)`）

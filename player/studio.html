@@ -26,7 +26,7 @@ html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); }
 .app { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: 100%; padding-block: 0; padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px)); }
 .stage { position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; padding: 16px; }
-.frame { position: relative; width: min(100%, calc(100vh - 32px)); aspect-ratio: 1; max-width: 100%; border-radius: 6px; overflow: hidden; background: var(--stage); box-shadow: 0 0 0 1px var(--line); touch-action: none; cursor: grab; }
+.frame { position: relative; width: min(100%, calc((100vh - 32px) * var(--ar, 1))); aspect-ratio: var(--ar, 1); max-width: 100%; border-radius: 6px; overflow: hidden; background: var(--stage); box-shadow: 0 0 0 1px var(--line); touch-action: none; cursor: grab; }
 .frame.drag { cursor: grabbing; }
 #gl { width: 100%; height: 100%; display: block; }
 .badge { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
@@ -55,6 +55,8 @@ button:focus-visible, .file:focus-within { outline: 2px solid var(--accent); out
 button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 button:disabled { opacity: .45; cursor: default; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; }
+.seg button { text-align: center; }
 .vowels button { width: 2.6em; padding-inline: 0; font-size: 15px; }
 .file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .file { position: relative; display: inline-flex; align-items: center; }
@@ -88,6 +90,10 @@ button:disabled { opacity: .45; cursor: default; }
       <h1>なるみスタジオ<small>1 枚の絵のまま、顔・目・口を動かす</small></h1>
       <button id="reset" type="button">リセット</button>
     </div>
+    <div class="btns seg" role="group" aria-label="絵">
+      <button type="button" data-view="bust" aria-pressed="true">バストアップ</button>
+      <button type="button" data-view="full" aria-pressed="false">全身</button>
+    </div>
 
     <section aria-labelledby="h-expr">
       <h2 id="h-expr">表情</h2>
@@ -105,6 +111,7 @@ button:disabled { opacity: .45; cursor: default; }
       <div class="row"><label for="p-yaw">角度 X</label><input id="p-yaw" type="range" min="-30" max="30" step="0.5" value="0"><output for="p-yaw">0</output></div>
       <div class="row"><label for="p-pitch">角度 Y</label><input id="p-pitch" type="range" min="-30" max="30" step="0.5" value="0"><output for="p-pitch">0</output></div>
       <div class="row"><label for="p-roll">角度 Z</label><input id="p-roll" type="range" min="-30" max="30" step="0.5" value="0"><output for="p-roll">0</output></div>
+      <div class="row" id="row-body" hidden><label for="p-body">体の角度</label><input id="p-body" type="range" min="-10" max="10" step="0.1" value="0"><output for="p-body">0</output></div>
     </section>
 
     <section aria-labelledby="h-eye">
@@ -162,7 +169,13 @@ button:disabled { opacity: .45; cursor: default; }
     </section>
   </aside>
 </div>
-<script>window.TP_EXTERNAL_LOOP = true; window.TP_SIZE = Math.min(1254, Math.max(640, Math.round(Math.min(screen.width, screen.height) * (window.devicePixelRatio || 1) * 0.9)));</script>
+<script>
+  // #full で全身、それ以外はバストアップ。描く大きさは画面に合わせる（長い辺）
+  window.TP_FULL = location.hash === '#full';
+  window.TP_ASSETS = window.TP_FULL ? 'assets_full' : 'assets';
+  window.TP_EXTERNAL_LOOP = true;
+  window.TP_SIZE = Math.min(window.TP_FULL ? 1536 : 1254, Math.max(720, Math.round(Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1) * 0.75)));
+</script>
 <script src="player.js"></script>
 <script src="studio.js"></script>
 </body></html>

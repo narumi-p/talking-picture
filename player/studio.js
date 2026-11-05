@@ -5,12 +5,13 @@
   const TP = window.TP;
   const P = TP.params;
   // つまみの値（目標）。毎コマ、いまの値をなめらかに近づける
-  const target = { yaw: 0, pitch: 0, roll: 0, eyeOpen: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1 };
+  const target = { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1 };
   const DEG = 20;                       // 表示の角度（度）→ 内部の値（±1.5）
   const sliders = {
     yaw: ['#p-yaw', (v) => v / DEG, (x) => x * DEG, (v) => `${(+v).toFixed(0)}°`],
     pitch: ['#p-pitch', (v) => -v / DEG, (x) => -x * DEG, (v) => `${(+v).toFixed(0)}°`],
     roll: ['#p-roll', (v) => -v / DEG, (x) => -x * DEG, (v) => `${(+v).toFixed(0)}°`],
+    body: ['#p-body', (v) => -v / 2, (x) => -x * 2, (v) => `${(+v).toFixed(1)}°`],
     eyeOpen: ['#p-eye', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
     gazeX: ['#p-gx', (v) => +v, (x) => x, (v) => (+v).toFixed(2)],
     gazeY: ['#p-gy', (v) => -v, (x) => -x, (v) => (+v).toFixed(2)],
@@ -63,7 +64,7 @@
     updateBadge();
   }));
   $('#reset').addEventListener('click', () => {
-    Object.assign(target, { yaw: 0, pitch: 0, roll: 0, eyeOpen: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1 });
+    Object.assign(target, { yaw: 0, pitch: 0, roll: 0, body: 0, eyeOpen: 1, gazeX: 0, gazeY: 0, brow: 0, mouthOpen: 0, exprK: 0, hair: 1 });
     setVowel(0); setPreset('normal'); setAll();
   });
 
@@ -204,7 +205,7 @@
       showSlider('yaw'); showSlider('pitch'); showSlider('gazeX'); showSlider('gazeY');
     }
     const k = 1 - Math.exp(-dt * 10), kf = 1 - Math.exp(-dt * 18);
-    for (const key of ['yaw', 'pitch', 'roll', 'brow', 'hair']) P[key] += (target[key] - P[key]) * k;
+    for (const key of ['yaw', 'pitch', 'roll', 'body', 'brow', 'hair']) P[key] += (target[key] - P[key]) * k;
     for (const key of ['gazeX', 'gazeY', 'mouthOpen', 'eyeOpen']) P[key] += (target[key] - P[key]) * kf;
     P.exprK += (target.exprK - P.exprK) * (1 - Math.exp(-dt * 12));
     P.expr = exprName; if (P.exprK < 0.02 && target.exprK === 0) exprName = '';
@@ -213,6 +214,15 @@
     TP.render(now / 1000);
     requestAnimationFrame(loop);
   }
-  const start = () => { TP.manual = true; $('#loading').hidden = true; setAll(); updateBadge(); requestAnimationFrame(loop); };
+  // バストアップ／全身：ページを読み直して層を切り替える（#full）
+  document.querySelectorAll('[data-view]').forEach((b) => {
+    b.setAttribute('aria-pressed', String((b.dataset.view === 'full') === !!window.TP_FULL));
+    b.addEventListener('click', () => { const full = b.dataset.view === 'full'; if (full === !!window.TP_FULL) return; location.hash = full ? 'full' : ''; location.reload(); });
+  });
+  const start = () => {
+    const cv = $('#gl'); frame.style.setProperty('--ar', String(cv.width / cv.height));
+    $('#row-body').hidden = !TP.hasBody();
+    TP.manual = true; $('#loading').hidden = true; setAll(); updateBadge(); requestAnimationFrame(loop);
+  };
   if (window.ready) start(); else window.addEventListener('tp-ready', start, { once: true });
 })();
