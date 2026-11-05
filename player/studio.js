@@ -99,7 +99,8 @@
     if (audioEl) { audioEl.pause(); audioEl = null; }
     if (srcNode) { try { srcNode.disconnect(); } catch (e) {} srcNode = null; }
     if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
-    TP.live = null; $('#stop').disabled = true; $('#mic').setAttribute('aria-pressed', 'false'); updateBadge();
+    TP.live = null; demo = false; TP.manual = true; $('#demo').setAttribute('aria-pressed', 'false');
+    $('#stop').disabled = true; $('#mic').setAttribute('aria-pressed', 'false'); updateBadge();
   }
   async function playUrl(url, label) {
     ensureAudio(); stopVoice(); await ac.resume();
@@ -110,8 +111,15 @@
     await audioEl.play();
     TP.live = { open: 0, shape: [1, 0, 0, 0, 0], avg: 0 }; $('#stop').disabled = false;
     voiceLabel = label; updateBadge();
+    setTimeout(updateBadge, 0);
   }
   let voiceLabel = '';
+  // デモ：サンプルの声を、前もって作った口の動き（lips.json）と表情の台本（timeline.json）で再生する
+  let demo = false;
+  $('#demo').addEventListener('click', async () => {
+    try { await playUrl('assets/voice.wav', 'デモ'); TP.live = null; demo = true; $('#demo').setAttribute('aria-pressed', 'true'); updateBadge(); }
+    catch (e) { note('#voice-note', 'デモを再生できませんでした。もう一度押してください。'); }
+  });
   $('#sample').addEventListener('click', () => playUrl('assets/voice.wav', 'サンプルの声').catch((e) => note('#voice-note', 'サンプルの声を再生できませんでした。もう一度押してください。')));
   $('#file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) playUrl(URL.createObjectURL(f), f.name).catch(() => note('#voice-note', 'この音声ファイルは再生できませんでした。wav か mp3 を選んでください。')); e.target.value = ''; });
   $('#stop').addEventListener('click', stopVoice);
@@ -189,7 +197,7 @@
   function updateBadge() {
     const chips = [];
     if (rec) chips.push('<span class="chip rec">● 録画中</span>');
-    if (TP.live) chips.push(`<span class="chip">声：${voiceLabel.replace(/[<>&]/g, '')}</span>`);
+    if (TP.live || demo) chips.push(`<span class="chip">声：${voiceLabel.replace(/[<>&]/g, '')}</span>`);
     chips.push(`<span class="chip">${follow ? 'マウスを見ています' : 'ドラッグで顔の向き'}</span>`);
     $('#badge').innerHTML = chips.join('');
   }
@@ -211,7 +219,8 @@
     P.expr = exprName; if (P.exprK < 0.02 && target.exprK === 0) exprName = '';
     P.shape = [0, 1, 2, 3, 4].map((i) => (i === vowel ? 1 : 0));
     analyse(dt);
-    TP.render(now / 1000);
+    if (demo && audioEl) { TP.manual = false; TP.render(audioEl.currentTime); }   // デモ：台本どおり
+    else { TP.manual = true; TP.render(now / 1000); }
     requestAnimationFrame(loop);
   }
   // バストアップ／全身：ページを読み直して層を切り替える（#full）
