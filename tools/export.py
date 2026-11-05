@@ -33,8 +33,8 @@ if A.timeline: put(A.timeline, "timeline.json"); tl = f"&timeline={A.assets}/tim
 dur = json.load(open(A.lips))["duration"] + A.tail
 n = int(round(dur * A.fps))
 srv, base = serve.start(A.player)
-size = json.load(open(ASSETS / "config.json"))["size"]
-A.w = A.w or size; A.h = A.h or size
+_c = json.load(open(ASSETS / "config.json")); _f = _c.get("frame") or [0, 0, _c["size"], _c["size"]]
+A.w = A.w or _f[2]; A.h = A.h or _f[3]                                           # 既定は絵（frame）の大きさのまま
 url = f"{base}/index.html?export=1&w={A.w}&h={A.h}&assets={A.assets}&lips={A.assets}/lips.json&seed={A.seed}{tl}" + ("&alpha=1" if A.alpha else "")
 t0 = time.time()
 with sync_playwright() as p:

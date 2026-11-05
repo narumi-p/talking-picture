@@ -23,7 +23,8 @@ Path(A.out).parent.mkdir(parents=True, exist_ok=True)
 if A.subs:                                                                         # 字幕を焼き込む（ASS → libass）
     import json
     import json as _j
-    W, H = (int(A.w) or _j.load(open(R / "player" / A.assets / "config.json"))["size"]), (int(A.h) or _j.load(open(R / "player" / A.assets / "config.json"))["size"]); fs = max(24, int(min(W, H) * 0.045))
+    _c = _j.load(open(R / "player" / A.assets / "config.json")); _f = _c.get("frame") or [0, 0, _c["size"], _c["size"]]
+    W, H = (int(A.w) or _f[2]), (int(A.h) or _f[3]); fs = max(24, int(min(W, H) * 0.045))
     ts = lambda v: f"{int(v // 3600)}:{int(v % 3600 // 60):02d}:{v % 60:05.2f}"
     ass = [f"[Script Info]\nScriptType: v4.00+\nPlayResX: {W}\nPlayResY: {H}\nWrapStyle: 0\n",
            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
